@@ -150,12 +150,9 @@
           <span class="valueLabel" id="thickValue">2 px</span>
         </div>
 
-        <!-- New: Red dot mode selector -->
-        <div class="checkboxRow" style="margin-top:6px;">
-          <label>
-            <input type="checkbox" id="chkOffsetMode">
-            Use Offset Mode (else use Lane Center)
-          </label>
+        <!-- NEW: red dot mode checkbox -->
+        <div class="checkboxRow" style="margin-top:2px;">
+          <label><input type="checkbox" id="useOffsetMode"> Use Offset Mode (anchor line ± offset)</label>
         </div>
 
         <div class="formRow">
@@ -229,10 +226,11 @@ let minBlobSize = loadSetting("minBlobSize", 180);
 let roiPercent = loadSetting("roiPercent", 20);
 let roiCenterPercent = loadSetting("roiCenterPercent", 75);
 let lineThickness = loadSetting("lineThickness", 2);
-let redOffset = loadSetting("redOffset", 0);
-let showPreviewState = loadSetting("showPreview", false);
 
-let useOffsetMode = loadSetting("useOffsetMode", true); // NEW
+let redOffset = loadSetting("redOffset", 0);
+let useOffsetModeState = loadSetting("useOffsetMode", true); // NEW
+
+let showPreviewState = loadSetting("showPreview", false);
 
 let paused = loadSetting("paused", false);
 chkPaused.checked = paused;
@@ -249,6 +247,7 @@ let lastLaneLeft=null, lastLaneRight=null;
 document.getElementById("toggleMode").onclick = ()=>{
   detectLeft=!detectLeft;
   saveSetting("detectLeft", detectLeft);
+  // (no extra logic needed; red dot anchor will follow detectLeft each frame)
 };
 
 const thSlider = document.getElementById("thSlider");
@@ -296,6 +295,9 @@ thickSlider.oninput = e=>{
   saveSetting("lineThickness", lineThickness);
 };
 
+const useOffsetMode = document.getElementById("useOffsetMode"); // NEW
+useOffsetMode.checked = useOffsetModeState;
+
 const offsetSlider = document.getElementById("offsetSlider");
 const offsetValue = document.getElementById("offsetValue");
 offsetSlider.value = redOffset; offsetValue.textContent = redOffset + " px";
@@ -305,11 +307,17 @@ offsetSlider.oninput = e=>{
   saveSetting("redOffset", redOffset);
 };
 
-const chkOffsetMode = document.getElementById("chkOffsetMode"); // NEW
-chkOffsetMode.checked = useOffsetMode;
-chkOffsetMode.onchange = e=>{
-  useOffsetMode = e.target.checked;
-  saveSetting("useOffsetMode", useOffsetMode);
+function applyOffsetUI(){
+  offsetSlider.disabled = !useOffsetModeState;
+  offsetSlider.style.opacity = useOffsetModeState ? "1" : ".45";
+  offsetValue.style.opacity = useOffsetModeState ? ".95" : ".45";
+}
+applyOffsetUI();
+
+useOffsetMode.onchange = e=>{
+  useOffsetModeState = e.target.checked;
+  saveSetting("useOffsetMode", useOffsetModeState);
+  applyOffsetUI();
 };
 
 const showPreview = document.getElementById("showPreview");
@@ -604,7 +612,7 @@ function loop(){
   // mean of dashed centers
   const mean_d = dashed.length ? dashed.reduce((s,b)=>s+b.cx,0)/dashed.length : roiW/2;
 
-  // choose main line blob
+  // choose main line blob (border line)
   let main=null;
   if(borders.length){
     if(detectLeft){
@@ -680,36 +688,49 @@ function loop(){
     ctx2.beginPath(); ctx2.moveTo(xR, roi_y1); ctx2.lineTo(xR, roi_y2); ctx2.stroke();
   }
 
-  /* =========================
-     NEW RED DOT LOGIC
-     - Anchor switches with mode:
-       MODE LEFT  -> anchor = left line
-       MODE RIGHT -> anchor = right line
+  /* =========================================================
+     RED DOT (UPDATED)
+     - Always anchors to LEFT or RIGHT lane line based on mode.
      - Checkbox selects:
-       offset mode -> anchor + redOffset
-       center mode -> midpoint between left & right lines
-  ========================= */
+        ✅ Offset Mode: anchorLine ± offset
+        ⛔ Center Mode: middle between left+right lines (no offset)
+  ========================================================= */
   let redX, redY=lineY;
 
-  const haveBounds = (useLeft!=null && useRight!=null);
-
-  // compute anchor in ROI-local coords
-  let anchorLocal = null;
-  if(haveBounds){
-    anchorLocal = detectLeft ? useLeft : useRight;
-  }else if(main_cx!=null){
-    // fallback if bounds not available yet
-    anchorLocal = main_cx;
+  // pick the anchor line based on mode (prefer actual lane boundary, fallback to main line)
+  let anchorLocal = null; // local x inside ROI
+  if(detectLeft){
+    anchorLocal = (useLeft!=null) ? useLeft : main_cx;
+  }else{
+    anchorLocal = (useRight!=null) ? useRight : main_cx;
   }
 
-  if(!useOffsetMode && haveBounds){
-    // lane center mode: midpoint of left & right yellow vertical lines
-    const centerLocal = (useLeft + useRight) / 2;
-    redX = Math.round(roi_x1 + centerLocal);
-    lastRedX=redX; lastRedY=redY;
-  }else if(anchorLocal!=null){
-    // offset mode (or fallback): anchor line + offset
-    let local = anchorLocal + redOffset;
+  // choose dot local position
+  let local = null;
+
+  if(!useOffsetModeState){
+    // CENTER MODE: middle of left/right lines at the middle horizontal line
+    if(useLeft!=null && useRight!=null){
+      local = (useLeft + useRight) / 2;
+    }else if(anchorLocal!=null){
+      // if one boundary missing, fallback to whichever we have
+      local = anchorLocal;
+    }else{
+      local = roiW/2;
+    }
+  }else{
+    // OFFSET MODE: anchored to mode's line ± offset
+    if(anchorLocal!=null){
+      local = anchorLocal + redOffset;
+    }else if(lastRedX!=null){
+      // can't compute local; will use lastRedX below
+      local = null;
+    }else{
+      local = roiW/2 + redOffset;
+    }
+  }
+
+  if(local!=null){
     local = Math.max(0, Math.min(roiW-1, local));
     redX = Math.round(roi_x1 + local);
     lastRedX=redX; lastRedY=redY;
