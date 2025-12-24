@@ -6,76 +6,83 @@
 <title>Lane Detection (HTML5 + OpenCV.js)</title>
 
 <style>
-  :root { --bg:#111; --fg:#eee; --panel:#e8e8e8; --panelText:#000; }
+  :root { --bg:#111; --fg:#eee; --card:#181818; --line:#333; }
 
-  * { box-sizing:border-box; }
-
+  *{ box-sizing:border-box; }
   body{
     margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-    background:var(--bg); color:var(--fg); height:100vh; display:flex; flex-direction:column;
+    background:var(--bg); color:var(--fg);
+    height:100vh; display:flex; flex-direction:column;
   }
 
   #topBar{
-    padding:8px 10px; display:flex; align-items:center; gap:10px; font-size:14px;
+    padding:8px 10px; display:flex; align-items:center; gap:10px;
+    font-size:14px; border-bottom:1px solid var(--line);
   }
   #statusText{ opacity:.9; }
 
-  #app{
-    flex:1; display:flex; gap:8px; padding:8px; overflow:hidden;
+  /* SINGLE COLUMN LAYOUT */
+  #wrap{
+    flex:1; display:flex; flex-direction:column;
+    padding:10px; gap:10px; overflow:auto;
   }
 
-  #leftPane{
-    flex:2; display:flex; flex-direction:column; gap:8px; min-width:0;
+  #videoCard{
+    background:#000; border-radius:10px; overflow:hidden;
+    border:1px solid #222;
   }
-
-  #videoContainer{
-    background:#000; border-radius:6px; overflow:hidden;
-    display:flex; align-items:center; justify-content:center;
-  }
-
-  #output{
-    width:100%;
-    max-width:100%;
-    background:#000;
-    display:block;
-  }
-
+  #output{ width:100%; display:block; background:#000; }
   video{ display:none; }
 
-  #sidebar{
-    flex:1; max-width:380px; background:var(--panel); color:var(--panelText);
-    border-radius:6px; overflow:hidden; display:flex; flex-direction:column;
+  #controls{
+    background:var(--card);
+    border:1px solid #222;
+    border-radius:10px;
+    padding:10px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
   }
-
-  #sidebarScroll{ flex:1; overflow:auto; padding:10px; }
 
   .group{
-    border:1px solid #cfcfcf; border-radius:6px; padding:10px; margin-bottom:10px;
-    background: rgba(255,255,255,0.55);
+    border:1px solid #2a2a2a;
+    border-radius:10px;
+    padding:10px;
+    background:#141414;
   }
-  .groupTitle{ font-weight:700; font-size:13px; margin-bottom:8px; }
+  .groupTitle{
+    font-weight:700; font-size:13px; margin-bottom:8px; color:#ddd;
+  }
 
-  .formRow{ display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; }
-  .formRow label{ min-width:110px; }
+  .formRow{
+    display:flex; align-items:center; gap:10px;
+    margin-bottom:8px; font-size:13px;
+  }
+  .formRow label{ min-width:140px; opacity:.95; }
   .formRow input[type="range"]{ flex:1; }
-  .valueLabel{ width:70px; text-align:right; font-size:12px; }
+  .valueLabel{ width:82px; text-align:right; font-size:12px; opacity:.95; }
 
-  .btnRow{ display:flex; gap:6px; flex-wrap:wrap; }
+  .btnRow{ display:flex; gap:8px; flex-wrap:wrap; }
   button{
-    height:34px; padding:0 10px; border-radius:6px; border:1px solid #555;
-    background:#333; color:#fff; font-size:12px; cursor:pointer;
+    height:36px; padding:0 12px; border-radius:10px; border:1px solid #444;
+    background:#2a2a2a; color:#fff; font-size:12px; cursor:pointer;
   }
-  button:hover{ background:#444; }
-  button:active{ background:#555; }
+  button:hover{ background:#343434; }
+  button:active{ background:#3f3f3f; }
 
-  .checkboxRow{ display:flex; gap:12px; flex-wrap:wrap; font-size:13px; }
-  .checkboxRow label{ display:flex; align-items:center; gap:6px; }
+  select{
+    width:100%; font-size:12px; padding:8px 10px;
+    border-radius:10px; border:1px solid #444; background:#111; color:#fff;
+  }
+
+  .checkboxRow{ display:flex; gap:14px; flex-wrap:wrap; font-size:13px; }
+  .checkboxRow label{ display:flex; align-items:center; gap:7px; }
 
   /* Threshold preview box */
   #previewBox{
     position:fixed; top:18px; right:18px;
     border:2px solid cyan; background:rgba(0,0,0,.7);
-    padding:6px; border-radius:8px; z-index:9999; cursor:move;
+    padding:6px; border-radius:10px; z-index:9999; cursor:move;
     display:none;
   }
   #previewCanvas{ display:block; }
@@ -88,97 +95,89 @@
     <span id="statusText"></span>
   </div>
 
-  <div id="app">
-    <!-- LEFT -->
-    <div id="leftPane">
-      <div id="videoContainer">
-        <canvas id="output"></canvas>
-        <video id="video" autoplay playsinline></video>
-      </div>
+  <div id="wrap">
+    <!-- CAMERA FRAME -->
+    <div id="videoCard">
+      <canvas id="output"></canvas>
+      <video id="video" autoplay playsinline></video>
     </div>
 
-    <!-- RIGHT SIDEBAR -->
-    <div id="sidebar">
-      <div id="sidebarScroll">
+    <!-- ALL CONTROLS BELOW CAMERA -->
+    <div id="controls">
 
-        <!-- Camera Group (from your example) -->
-        <div class="group">
-          <div class="groupTitle">Camera</div>
+      <!-- Camera Group -->
+      <div class="group">
+        <div class="groupTitle">Camera</div>
 
-          <div class="formRow">
-            <label for="cameraSelect">Source</label>
-            <select id="cameraSelect" style="flex:1;font-size:12px;padding:4px 6px;"></select>
-          </div>
-
-          <div class="formRow" style="gap:6px; flex-wrap:wrap;">
-            <button id="btnRefreshCam">Refresh Cam</button>
-            <button id="btnTorch">Torch OFF</button>
-          </div>
-
-          <div class="checkboxRow">
-            <label><input type="checkbox" id="chkMirror"> Mirror</label>
-          </div>
-
-          <div class="checkboxRow">
-            <label><input type="checkbox" id="chkPaused"> Pause</label>
-          </div>
-
-          <div class="btnRow" style="margin-top:6px;">
-            <button id="toggleMode">Toggle Left/Right Mode</button>
+        <div class="formRow" style="margin-bottom:10px;">
+          <label style="min-width:140px;">Source</label>
+          <div style="flex:1;">
+            <select id="cameraSelect"></select>
           </div>
         </div>
 
-        <!-- Detection -->
-        <div class="group">
-          <div class="groupTitle">Detection</div>
-
-          <div class="formRow">
-            <label>Threshold (Invert)</label>
-            <input type="range" id="thSlider" min="0" max="255" value="160">
-            <span class="valueLabel" id="thValue">160</span>
-          </div>
-
-          <div class="formRow">
-            <label>Min Blob Size</label>
-            <input type="range" id="blobSlider" min="10" max="10000" value="180">
-            <span class="valueLabel" id="blobValue">180</span>
-          </div>
-
-          <div class="formRow">
-            <label>Line Thickness</label>
-            <input type="range" id="thickSlider" min="1" max="10" value="2">
-            <span class="valueLabel" id="thickValue">2 px</span>
-          </div>
-
-          <div class="formRow">
-            <label>Red Dot Offset</label>
-            <input type="range" id="offsetSlider" min="-300" max="300" value="0">
-            <span class="valueLabel" id="offsetValue">0 px</span>
-          </div>
-
-          <div class="checkboxRow">
-            <label><input type="checkbox" id="showPreview"> Show Threshold Window</label>
-          </div>
+        <div class="btnRow">
+          <button id="btnRefreshCam">Refresh Cam</button>
+          <button id="btnTorch">Torch OFF</button>
+          <button id="toggleMode">Toggle Left/Right Mode</button>
         </div>
 
-        <!-- ROI -->
-        <div class="group">
-          <div class="groupTitle">ROI</div>
-
-          <div class="formRow">
-            <label>ROI Height (%)</label>
-            <input type="range" id="roiSlider" min="5" max="50" value="20">
-            <span class="valueLabel" id="roiValue">20%</span>
-          </div>
-
-          <div class="formRow">
-            <label>ROI Vertical Pos (%)</label>
-            <input type="range" id="roiCenterSlider" min="10" max="90" value="75">
-            <span class="valueLabel" id="roiCenterValue">75%</span>
-          </div>
+        <div class="checkboxRow" style="margin-top:10px;">
+          <label><input type="checkbox" id="chkMirror"> Mirror</label>
+          <label><input type="checkbox" id="chkPaused"> Pause</label>
         </div>
-
       </div>
+
+      <!-- Detection Group -->
+      <div class="group">
+        <div class="groupTitle">Detection</div>
+
+        <div class="formRow">
+          <label>Threshold (Invert)</label>
+          <input type="range" id="thSlider" min="0" max="255" value="160">
+          <span class="valueLabel" id="thValue">160</span>
+        </div>
+
+        <div class="formRow">
+          <label>Min Blob Size</label>
+          <input type="range" id="blobSlider" min="10" max="10000" value="180">
+          <span class="valueLabel" id="blobValue">180</span>
+        </div>
+
+        <div class="formRow">
+          <label>Line Thickness</label>
+          <input type="range" id="thickSlider" min="1" max="10" value="2">
+          <span class="valueLabel" id="thickValue">2 px</span>
+        </div>
+
+        <div class="formRow">
+          <label>Red Dot Offset</label>
+          <input type="range" id="offsetSlider" min="-300" max="300" value="0">
+          <span class="valueLabel" id="offsetValue">0 px</span>
+        </div>
+
+        <div class="checkboxRow">
+          <label><input type="checkbox" id="showPreview"> Show Threshold Window</label>
+        </div>
+      </div>
+
+      <!-- ROI Group -->
+      <div class="group">
+        <div class="groupTitle">ROI</div>
+
+        <div class="formRow">
+          <label>ROI Height (%)</label>
+          <input type="range" id="roiSlider" min="5" max="50" value="20">
+          <span class="valueLabel" id="roiValue">20%</span>
+        </div>
+
+        <div class="formRow">
+          <label>ROI Vertical Pos (%)</label>
+          <input type="range" id="roiCenterSlider" min="10" max="90" value="75">
+          <span class="valueLabel" id="roiCenterValue">75%</span>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -234,14 +233,14 @@ let last=performance.now(), frames=0, fps=0;
 let lastRedX=null, lastRedY=null;
 let lastLaneLeft=null, lastLaneRight=null;
 
+/* =========================
+   UI init bindings
+========================= */
 document.getElementById("toggleMode").onclick = ()=>{
   detectLeft=!detectLeft;
   saveSetting("detectLeft", detectLeft);
 };
 
-/* =========================
-   UI init bindings
-========================= */
 const thSlider = document.getElementById("thSlider");
 const thValue = document.getElementById("thValue");
 thSlider.value = thresholdValue; thValue.textContent = thresholdValue;
@@ -328,10 +327,11 @@ window.addEventListener("mousemove", e=>{
 });
 
 /* =========================
-   Camera functions (YOUR STYLE)
+   Camera functions (phone-friendly)
 ========================= */
 async function startCamera(deviceId){
   try{
+    statusText.textContent = "Starting camera…";
     if(currentStream){
       currentStream.getTracks().forEach(t=>t.stop());
       currentStream=null;
@@ -351,9 +351,9 @@ async function startCamera(deviceId){
     currentStream = await navigator.mediaDevices.getUserMedia(constraints);
     video.srcObject = currentStream;
     currentTrack = currentStream.getVideoTracks()[0];
+
     torchOn=false;
     btnTorch.textContent = "Torch OFF";
-
     statusText.textContent = "Camera running ✅";
 
   }catch(err){
@@ -365,11 +365,15 @@ async function startCamera(deviceId){
 
 async function listCams(){
   try{
-    // Permission warm-up so labels show
+    statusText.textContent = "Listing cameras…";
+
+    // permission warm-up so labels show on phone
     try{
       const temp = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
       temp.getTracks().forEach(t=>t.stop());
-    }catch(e){ console.warn("perm warm-up failed", e); }
+    }catch(e){
+      console.warn("perm warm-up failed", e);
+    }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter(d=>d.kind==="videoinput");
@@ -385,7 +389,6 @@ async function listCams(){
     cameraSelect.onchange = ()=> startCamera(cameraSelect.value);
 
     if(cams.length){
-      // Prefer back/rear/environment label
       let preferred = cams[0];
       const backCam = cams.find(c=>{
         const s=(c.label||"").toLowerCase();
@@ -407,8 +410,7 @@ async function listCams(){
 }
 
 btnRefreshCam.onclick = async ()=>{
-  // Refresh list + restart selected (best for phone when cameras appear later)
-  await listCams();
+  await listCams(); // refresh list + restart
 };
 
 btnTorch.onclick = ()=>{
@@ -428,7 +430,20 @@ let cvReady=false;
 let Module = { onRuntimeInitialized(){ cvReady=true; statusText.textContent="OpenCV ready ✅"; } };
 
 /* =========================
-   Drawing helpers
+   FPS
+========================= */
+function updateFPS(){
+  frames++;
+  const now = performance.now();
+  if(now-last>=1000){
+    fps=frames;
+    frames=0;
+    last=now;
+  }
+}
+
+/* =========================
+   Draw polyline
 ========================= */
 const PURPLE = "#AA00FF";
 const BLUE   = "#00AFFF";
@@ -446,19 +461,6 @@ function drawPts(pts, ox, oy, color){
     else ctx2.lineTo(px,py);
   }
   ctx2.stroke();
-}
-
-/* =========================
-   FPS
-========================= */
-function updateFPS(){
-  frames++;
-  const now = performance.now();
-  if(now-last>=1000){
-    fps=frames;
-    frames=0;
-    last=now;
-  }
 }
 
 /* =========================
@@ -484,11 +486,11 @@ function loop(){
   ctx2.drawImage(video,0,0);
   ctx2.restore();
 
-  // read frame for OpenCV
+  // OpenCV read
   let frame = cv.imread(canvas);
   const h = frame.rows, w = frame.cols;
 
-  // ---- threshold preview of ENTIRE frame (keeps aspect ratio)
+  // preview threshold (entire frame, correct aspect)
   if(showPreviewState){
     const fullGray = new cv.Mat();
     cv.cvtColor(frame, fullGray, cv.COLOR_RGBA2GRAY);
@@ -497,11 +499,10 @@ function loop(){
     cv.threshold(fullGray, fullMask, thresholdValue, 255, cv.THRESH_BINARY_INV);
     cv.bitwise_not(fullMask, fullMask);
 
-    const fw=w, fh=h;
     const maxW=220, maxH=220;
-    const scale=Math.min(maxW/fw, maxH/fh);
-    const pw=Math.max(1, Math.round(fw*scale));
-    const ph=Math.max(1, Math.round(fh*scale));
+    const scale=Math.min(maxW/w, maxH/h);
+    const pw=Math.max(1, Math.round(w*scale));
+    const ph=Math.max(1, Math.round(h*scale));
 
     previewCanvas.width=pw;
     previewCanvas.height=ph;
@@ -516,7 +517,7 @@ function loop(){
     fullGray.delete(); fullMask.delete(); small.delete(); smallRGBA.delete();
   }
 
-  // ---- ROI position
+  // ROI geometry
   let roi_h = Math.floor(h*(roiPercent/100));
   roi_h = Math.max(1, Math.min(h, roi_h));
 
@@ -548,14 +549,11 @@ function loop(){
   const hier = new cv.Mat();
   cv.findContours(invR, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-  // build filtered blobs
-  const blobs=[];
-  const borders=[];
-  const dashed=[];
-  const roiH = invR.rows, roiW = invR.cols;
+  const blobs=[], borders=[], dashed=[];
+  const roiH=invR.rows, roiW=invR.cols;
 
   function toPts(cnt){
-    const d = cnt.data32S;
+    const d=cnt.data32S;
     const pts=[];
     for(let i=0;i<d.length;i+=2) pts.push({x:d[i], y:d[i+1]});
     return pts;
@@ -570,10 +568,10 @@ function loop(){
       const x=r.x, y=r.y, ww=r.width, hh=r.height;
       const cx = x + ww/2;
 
-      const L = (x<=0);
-      const R = (x+ww >= roiW-1);
-      const T = (y<=0);
-      const B = (y+hh >= roiH-1);
+      const L=(x<=0);
+      const R=(x+ww>=roiW-1);
+      const T=(y<=0);
+      const B=(y+hh>=roiH-1);
 
       const isBorder = (T&&B)||(L&&T)||(L&&B)||(R&&T)||(R&&B);
       const tb = (T&&B);
@@ -586,22 +584,18 @@ function loop(){
     cnt.delete();
   }
 
-  // mean dashed center
+  // mean of dashed centers
   const mean_d = dashed.length ? dashed.reduce((s,b)=>s+b.cx,0)/dashed.length : roiW/2;
 
-  // pick main border blob
+  // choose main line blob
   let main=null;
   if(borders.length){
     if(detectLeft){
       const Ls = borders.filter(b=>b.cx<=mean_d);
-      main = (Ls.length?Ls:borders).reduce((a,b)=>
-        Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b
-      );
+      main = (Ls.length?Ls:borders).reduce((a,b)=> Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b);
     }else{
       const Rs = borders.filter(b=>b.cx>=mean_d);
-      main = (Rs.length?Rs:borders).reduce((a,b)=>
-        Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b
-      );
+      main = (Rs.length?Rs:borders).reduce((a,b)=> Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b);
     }
   }
 
@@ -613,7 +607,6 @@ function loop(){
     drawPts(main.pts, roi_x1, roi_y1, detectLeft?PURPLE:BLUE);
   }
 
-  // green blobs (not border, not top-bottom)
   for(const b of blobs){
     if(b.isBorder) continue;
     if(b.tb) continue;
@@ -625,7 +618,7 @@ function loop(){
     greens.push(b.cx);
   }
 
-  // lane boundaries (for vertical yellow lines)
+  // lane boundaries for vertical yellow lines
   let laneLeft=null, laneRight=null;
   if(main_cx!=null && greens.length){
     if(detectLeft){
@@ -650,7 +643,7 @@ function loop(){
   const useLeft = (laneLeft!=null && laneRight!=null) ? laneLeft : lastLaneLeft;
   const useRight = (laneLeft!=null && laneRight!=null) ? laneRight : lastLaneRight;
 
-  // yellow horizontal line always
+  // horizontal yellow line always
   const lineY = Math.round((roi_y1+roi_y2)/2);
   ctx2.strokeStyle="yellow";
   ctx2.lineWidth=2;
@@ -659,32 +652,29 @@ function loop(){
   ctx2.lineTo(roi_x2, lineY);
   ctx2.stroke();
 
-  // vertical lines if we have boundaries (current or last)
+  // vertical lines (if boundaries exist)
   if(useLeft!=null && useRight!=null){
-    const xL = Math.round(roi_x1+useLeft);
-    const xR = Math.round(roi_x1+useRight);
+    const xL = Math.round(roi_x1 + useLeft);
+    const xR = Math.round(roi_x1 + useRight);
 
     ctx2.strokeStyle="yellow";
     ctx2.lineWidth=2;
-
     ctx2.beginPath(); ctx2.moveTo(xL, roi_y1); ctx2.lineTo(xL, roi_y2); ctx2.stroke();
     ctx2.beginPath(); ctx2.moveTo(xR, roi_y1); ctx2.lineTo(xR, roi_y2); ctx2.stroke();
   }
 
-  // red dot anchored to main line + offset, else keep last, else center
+  // red dot anchored to main line + offset, else last, else center
   let redX, redY=lineY;
-
   if(main_cx!=null){
     let local = main_cx + redOffset;
     local = Math.max(0, Math.min(roiW-1, local));
     redX = Math.round(roi_x1 + local);
-    lastRedX = redX; lastRedY = redY;
+    lastRedX=redX; lastRedY=redY;
   }else if(lastRedX!=null){
-    redX = lastRedX;
-    redY = lastRedY;
+    redX=lastRedX; redY=lastRedY;
   }else{
-    redX = Math.round(roi_x1 + roiW/2);
-    lastRedX = redX; lastRedY = redY;
+    redX=Math.round(roi_x1 + roiW/2);
+    lastRedX=redX; lastRedY=redY;
   }
 
   ctx2.fillStyle="red";
@@ -697,7 +687,7 @@ function loop(){
   ctx2.lineWidth=3;
   ctx2.strokeRect(roi_x1, roi_y1, roi_w, roi_h);
 
-  // big HUD text
+  // HUD text
   ctx2.fillStyle="yellow";
   ctx2.font="50px Arial";
   ctx2.fillText(detectLeft?"MODE LEFT (purple)":"MODE RIGHT (blue)", 10, 60);
@@ -728,3 +718,4 @@ function loop(){
 </script>
 </body>
 </html>
+
