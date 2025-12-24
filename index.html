@@ -1,603 +1,730 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Lane Detection – Filtered ROI + Aspect Ratio Preview + Saved Settings</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Lane Detection (HTML5 + OpenCV.js)</title>
+
 <style>
-    body { background:#111; color:white; text-align:center; margin:0; padding:0; font-family:Arial; }
-    canvas { width:95%; margin-top:10px; border:1px solid #444; }
-    video { display:none; }
-    #previewBox {
-        position: fixed; top: 20px; right: 20px;
-        border: 2px solid cyan; background: rgba(0,0,0,0.7);
-        cursor: move; z-index: 9999; padding: 5px;
-    }
+  :root { --bg:#111; --fg:#eee; --panel:#e8e8e8; --panelText:#000; }
+
+  * { box-sizing:border-box; }
+
+  body{
+    margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:var(--bg); color:var(--fg); height:100vh; display:flex; flex-direction:column;
+  }
+
+  #topBar{
+    padding:8px 10px; display:flex; align-items:center; gap:10px; font-size:14px;
+  }
+  #statusText{ opacity:.9; }
+
+  #app{
+    flex:1; display:flex; gap:8px; padding:8px; overflow:hidden;
+  }
+
+  #leftPane{
+    flex:2; display:flex; flex-direction:column; gap:8px; min-width:0;
+  }
+
+  #videoContainer{
+    background:#000; border-radius:6px; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  #output{
+    width:100%;
+    max-width:100%;
+    background:#000;
+    display:block;
+  }
+
+  video{ display:none; }
+
+  #sidebar{
+    flex:1; max-width:380px; background:var(--panel); color:var(--panelText);
+    border-radius:6px; overflow:hidden; display:flex; flex-direction:column;
+  }
+
+  #sidebarScroll{ flex:1; overflow:auto; padding:10px; }
+
+  .group{
+    border:1px solid #cfcfcf; border-radius:6px; padding:10px; margin-bottom:10px;
+    background: rgba(255,255,255,0.55);
+  }
+  .groupTitle{ font-weight:700; font-size:13px; margin-bottom:8px; }
+
+  .formRow{ display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; }
+  .formRow label{ min-width:110px; }
+  .formRow input[type="range"]{ flex:1; }
+  .valueLabel{ width:70px; text-align:right; font-size:12px; }
+
+  .btnRow{ display:flex; gap:6px; flex-wrap:wrap; }
+  button{
+    height:34px; padding:0 10px; border-radius:6px; border:1px solid #555;
+    background:#333; color:#fff; font-size:12px; cursor:pointer;
+  }
+  button:hover{ background:#444; }
+  button:active{ background:#555; }
+
+  .checkboxRow{ display:flex; gap:12px; flex-wrap:wrap; font-size:13px; }
+  .checkboxRow label{ display:flex; align-items:center; gap:6px; }
+
+  /* Threshold preview box */
+  #previewBox{
+    position:fixed; top:18px; right:18px;
+    border:2px solid cyan; background:rgba(0,0,0,.7);
+    padding:6px; border-radius:8px; z-index:9999; cursor:move;
+    display:none;
+  }
+  #previewCanvas{ display:block; }
 </style>
 </head>
 
 <body>
+  <div id="topBar">
+    <strong>Lane Detection (HTML5 + OpenCV.js)</strong>
+    <span id="statusText"></span>
+  </div>
 
-<h2>Lane Detection – Filtered ROI + Aspect Ratio Preview</h2>
+  <div id="app">
+    <!-- LEFT -->
+    <div id="leftPane">
+      <div id="videoContainer">
+        <canvas id="output"></canvas>
+        <video id="video" autoplay playsinline></video>
+      </div>
+    </div>
 
-<select id="cameraSelect"></select><br>
-<video id="video" autoplay playsinline></video>
-<canvas id="output"></canvas>
+    <!-- RIGHT SIDEBAR -->
+    <div id="sidebar">
+      <div id="sidebarScroll">
 
-<button id="toggleMode">Toggle Left/Right Mode</button><br>
-<button id="flashBtn">Toggle Flash</button><br>
+        <!-- Camera Group (from your example) -->
+        <div class="group">
+          <div class="groupTitle">Camera</div>
 
-<div id="expControl" style="display:none;">
-    <label>Exposure:</label>
-    <input type="range" id="expSlider" min="0" max="0" value="0">
-    <span id="expValue">0</span>
-</div>
+          <div class="formRow">
+            <label for="cameraSelect">Source</label>
+            <select id="cameraSelect" style="flex:1;font-size:12px;padding:4px 6px;"></select>
+          </div>
 
-<label><input type="checkbox" id="autoExpBox"> Auto Night Exposure Boost</label><br>
+          <div class="formRow" style="gap:6px; flex-wrap:wrap;">
+            <button id="btnRefreshCam">Refresh Cam</button>
+            <button id="btnTorch">Torch OFF</button>
+          </div>
 
-<div style="margin-top:10px;">
-    <label>Threshold:</label>
-    <input type="range" id="thSlider" min="0" max="255" value="160">
-    <span id="thValue">160</span>
-</div>
+          <div class="checkboxRow">
+            <label><input type="checkbox" id="chkMirror"> Mirror</label>
+          </div>
 
-<div style="margin-top:10px;">
-    <label>Min Blob Size:</label>
-    <input type="range" id="blobSlider" min="10" max="10000" value="180">
-    <span id="blobValue">180</span>
-</div>
+          <div class="checkboxRow">
+            <label><input type="checkbox" id="chkPaused"> Pause</label>
+          </div>
 
-<div style="margin-top:10px;">
-    <label>ROI Height (%):</label>
-    <input type="range" id="roiSlider" min="5" max="50" value="20">
-    <span id="roiValue">20%</span>
-</div>
+          <div class="btnRow" style="margin-top:6px;">
+            <button id="toggleMode">Toggle Left/Right Mode</button>
+          </div>
+        </div>
 
-<!-- ROI Vertical Position Slider -->
-<div style="margin-top:10px;">
-    <label>ROI Vertical Position (%):</label>
-    <input type="range" id="roiCenterSlider" min="10" max="90" value="75">
-    <span id="roiCenterValue">75%</span>
-</div>
+        <!-- Detection -->
+        <div class="group">
+          <div class="groupTitle">Detection</div>
 
-<!-- Line Thickness Slider -->
-<div style="margin-top:10px;">
-    <label>Line Thickness:</label>
-    <input type="range" id="thickSlider" min="1" max="10" value="2">
-    <span id="thickValue">2 px</span>
-</div>
+          <div class="formRow">
+            <label>Threshold (Invert)</label>
+            <input type="range" id="thSlider" min="0" max="255" value="160">
+            <span class="valueLabel" id="thValue">160</span>
+          </div>
 
-<!-- NEW: Red dot offset slider -->
-<div style="margin-top:10px;">
-    <label>Red Dot Offset (px):</label>
-    <input type="range" id="offsetSlider" min="-300" max="300" value="0">
-    <span id="offsetValue">0 px</span>
-</div>
+          <div class="formRow">
+            <label>Min Blob Size</label>
+            <input type="range" id="blobSlider" min="10" max="10000" value="180">
+            <span class="valueLabel" id="blobValue">180</span>
+          </div>
 
-<label><input type="checkbox" id="showPreview"> Show Threshold Window</label>
+          <div class="formRow">
+            <label>Line Thickness</label>
+            <input type="range" id="thickSlider" min="1" max="10" value="2">
+            <span class="valueLabel" id="thickValue">2 px</span>
+          </div>
 
-<div id="previewBox" style="display:none;">
+          <div class="formRow">
+            <label>Red Dot Offset</label>
+            <input type="range" id="offsetSlider" min="-300" max="300" value="0">
+            <span class="valueLabel" id="offsetValue">0 px</span>
+          </div>
+
+          <div class="checkboxRow">
+            <label><input type="checkbox" id="showPreview"> Show Threshold Window</label>
+          </div>
+        </div>
+
+        <!-- ROI -->
+        <div class="group">
+          <div class="groupTitle">ROI</div>
+
+          <div class="formRow">
+            <label>ROI Height (%)</label>
+            <input type="range" id="roiSlider" min="5" max="50" value="20">
+            <span class="valueLabel" id="roiValue">20%</span>
+          </div>
+
+          <div class="formRow">
+            <label>ROI Vertical Pos (%)</label>
+            <input type="range" id="roiCenterSlider" min="10" max="90" value="75">
+            <span class="valueLabel" id="roiCenterValue">75%</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Threshold Preview -->
+  <div id="previewBox">
     <canvas id="previewCanvas"></canvas>
-</div>
+  </div>
 
 <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
-
 <script>
-// ======================================================
-// SETTINGS STORAGE
-// ======================================================
-function saveSetting(k,v){ localStorage.setItem(k,JSON.stringify(v)); }
-function loadSetting(k,def){ let v=localStorage.getItem(k); return v?JSON.parse(v):def; }
+/* =========================
+   Local Storage helpers
+========================= */
+function saveSetting(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function loadSetting(k,def){ try{ const v=localStorage.getItem(k); return v!==null?JSON.parse(v):def; }catch(e){ return def; } }
 
-// ======================================================
+/* =========================
+   State
+========================= */
+const video = document.getElementById("video");
+const canvas = document.getElementById("output");
+const ctx2 = canvas.getContext("2d");
+
+const previewBox = document.getElementById("previewBox");
+const previewCanvas = document.getElementById("previewCanvas");
+
+const statusText = document.getElementById("statusText");
+const cameraSelect = document.getElementById("cameraSelect");
+const btnRefreshCam = document.getElementById("btnRefreshCam");
+const btnTorch = document.getElementById("btnTorch");
+const chkMirror = document.getElementById("chkMirror");
+const chkPaused = document.getElementById("chkPaused");
+
+let currentStream=null;
 let currentTrack=null;
-let detectLeft = loadSetting("detectLeft", false);
-let lineThickness = loadSetting("lineThickness", 2);
+let torchOn=false;
 
-let nightBoostEnabled = loadSetting("nightBoost", false);
+let detectLeft = loadSetting("detectLeft", false);
 let thresholdValue = loadSetting("thresholdValue", 160);
-let minBlobSize    = loadSetting("minBlobSize", 180);
-let roiPercent     = loadSetting("roiPercent", 20);
+let minBlobSize = loadSetting("minBlobSize", 180);
+let roiPercent = loadSetting("roiPercent", 20);
 let roiCenterPercent = loadSetting("roiCenterPercent", 75);
+let lineThickness = loadSetting("lineThickness", 2);
+let redOffset = loadSetting("redOffset", 0);
 let showPreviewState = loadSetting("showPreview", false);
-let redOffset      = loadSetting("redOffset", 0);   // NEW
+
+let paused = loadSetting("paused", false);
+chkPaused.checked = paused;
 
 let last=performance.now(), frames=0, fps=0;
 
-// Remember last red dot and lane boundaries
-let lastRedX = null;
-let lastRedY = null;
-let lastLaneLeft = null;   // ROI-local x
-let lastLaneRight = null;  // ROI-local x
+// Persisted last positions
+let lastRedX=null, lastRedY=null;
+let lastLaneLeft=null, lastLaneRight=null;
 
-// Dummy exposure vars kept for compatibility
-let exposureSupported=false;
-let exposureMin=0, exposureMax=0;
-let normalExposureValue=0;
-
-// ======================================================
-let Module={
-    onRuntimeInitialized(){ startApp(); }
+document.getElementById("toggleMode").onclick = ()=>{
+  detectLeft=!detectLeft;
+  saveSetting("detectLeft", detectLeft);
 };
 
-// ======================================================
-function startApp(){
+/* =========================
+   UI init bindings
+========================= */
+const thSlider = document.getElementById("thSlider");
+const thValue = document.getElementById("thValue");
+thSlider.value = thresholdValue; thValue.textContent = thresholdValue;
+thSlider.oninput = e=>{
+  thresholdValue = Number(e.target.value);
+  thValue.textContent = thresholdValue;
+  saveSetting("thresholdValue", thresholdValue);
+};
 
-    const video=document.getElementById("video");
-    const canvas=document.getElementById("output");
-    const ctx2=canvas.getContext("2d");
+const blobSlider = document.getElementById("blobSlider");
+const blobValue = document.getElementById("blobValue");
+blobSlider.value = minBlobSize; blobValue.textContent = minBlobSize;
+blobSlider.oninput = e=>{
+  minBlobSize = Number(e.target.value);
+  blobValue.textContent = minBlobSize;
+  saveSetting("minBlobSize", minBlobSize);
+};
 
-    const previewCanvas=document.getElementById("previewCanvas");
-    const previewBox=document.getElementById("previewBox");
+const roiSlider = document.getElementById("roiSlider");
+const roiValue = document.getElementById("roiValue");
+roiSlider.value = roiPercent; roiValue.textContent = roiPercent + "%";
+roiSlider.oninput = e=>{
+  roiPercent = Number(e.target.value);
+  roiValue.textContent = roiPercent + "%";
+  saveSetting("roiPercent", roiPercent);
+};
 
-    previewBox.style.display = showPreviewState ? "block" : "none";
-    document.getElementById("showPreview").checked = showPreviewState;
+const roiCenterSlider = document.getElementById("roiCenterSlider");
+const roiCenterValue = document.getElementById("roiCenterValue");
+roiCenterSlider.value = roiCenterPercent; roiCenterValue.textContent = roiCenterPercent + "%";
+roiCenterSlider.oninput = e=>{
+  roiCenterPercent = Number(e.target.value);
+  roiCenterValue.textContent = roiCenterPercent + "%";
+  saveSetting("roiCenterPercent", roiCenterPercent);
+};
 
-    // ------------------------------
-    // DRAGGABLE PREVIEW
-    // ------------------------------
-    let drag=false, dx=0, dy=0;
-    previewBox.addEventListener("mousedown", e=>{
-        drag=true; dx=e.clientX-previewBox.offsetLeft; dy=e.clientY-previewBox.offsetTop;
-    });
-    window.addEventListener("mouseup", ()=>drag=false);
-    window.addEventListener("mousemove", e=>{
-        if(!drag) return;
-        previewBox.style.left=(e.clientX-dx)+"px";
-        previewBox.style.top =(e.clientY-dy)+"px";
-    });
+const thickSlider = document.getElementById("thickSlider");
+const thickValue = document.getElementById("thickValue");
+thickSlider.value = lineThickness; thickValue.textContent = lineThickness + " px";
+thickSlider.oninput = e=>{
+  lineThickness = Number(e.target.value);
+  thickValue.textContent = lineThickness + " px";
+  saveSetting("lineThickness", lineThickness);
+};
 
-    // ===============================================================
-    // UI HANDLERS
-    // ===============================================================
-    document.getElementById("toggleMode").onclick=()=>{
-        detectLeft=!detectLeft;
-        saveSetting("detectLeft", detectLeft);
-    };
+const offsetSlider = document.getElementById("offsetSlider");
+const offsetValue = document.getElementById("offsetValue");
+offsetSlider.value = redOffset; offsetValue.textContent = redOffset + " px";
+offsetSlider.oninput = e=>{
+  redOffset = Number(e.target.value);
+  offsetValue.textContent = redOffset + " px";
+  saveSetting("redOffset", redOffset);
+};
 
-    // Threshold slider
-    document.getElementById("thSlider").value=thresholdValue;
-    document.getElementById("thValue").innerText=thresholdValue;
-    document.getElementById("thSlider").oninput=(e)=>{
-        thresholdValue=Number(e.target.value);
-        document.getElementById("thValue").innerText=thresholdValue;
-        saveSetting("thresholdValue",thresholdValue);
-    };
+const showPreview = document.getElementById("showPreview");
+showPreview.checked = showPreviewState;
+previewBox.style.display = showPreviewState ? "block" : "none";
+showPreview.onchange = e=>{
+  showPreviewState = e.target.checked;
+  previewBox.style.display = showPreviewState ? "block" : "none";
+  saveSetting("showPreview", showPreviewState);
+};
 
-    // Min blob size
-    document.getElementById("blobSlider").value=minBlobSize;
-    document.getElementById("blobValue").innerText=minBlobSize;
-    document.getElementById("blobSlider").oninput=(e)=>{
-        minBlobSize=Number(e.target.value);
-        document.getElementById("blobValue").innerText=minBlobSize;
-        saveSetting("minBlobSize",minBlobSize);
-    };
+chkMirror.checked = loadSetting("mirror", false);
+chkMirror.onchange = e=> saveSetting("mirror", e.target.checked);
 
-    // ROI height
-    document.getElementById("roiSlider").value=roiPercent;
-    document.getElementById("roiValue").innerText=roiPercent+"%";
-    document.getElementById("roiSlider").oninput=(e)=>{
-        roiPercent=Number(e.target.value);
-        document.getElementById("roiValue").innerText=roiPercent+"%";
-        saveSetting("roiPercent",roiPercent);
-    };
+chkPaused.onchange = e=>{
+  paused = e.target.checked;
+  saveSetting("paused", paused);
+};
 
-    // ROI vertical position
-    document.getElementById("roiCenterSlider").value = roiCenterPercent;
-    document.getElementById("roiCenterValue").innerText = roiCenterPercent + "%";
-    document.getElementById("roiCenterSlider").oninput = (e)=>{
-        roiCenterPercent = Number(e.target.value);
-        document.getElementById("roiCenterValue").innerText = roiCenterPercent + "%";
-        saveSetting("roiCenterPercent", roiCenterPercent);
-    };
+/* =========================
+   Draggable preview box
+========================= */
+let drag=false, dx=0, dy=0;
+previewBox.addEventListener("mousedown", e=>{
+  drag=true; dx=e.clientX-previewBox.offsetLeft; dy=e.clientY-previewBox.offsetTop;
+});
+window.addEventListener("mouseup", ()=>drag=false);
+window.addEventListener("mousemove", e=>{
+  if(!drag) return;
+  previewBox.style.left = (e.clientX-dx)+"px";
+  previewBox.style.top  = (e.clientY-dy)+"px";
+});
 
-    // Line thickness
-    document.getElementById("thickSlider").value=lineThickness;
-    document.getElementById("thickValue").innerText=lineThickness+" px";
-    document.getElementById("thickSlider").oninput=(e)=>{
-        lineThickness = Number(e.target.value);
-        document.getElementById("thickValue").innerText = lineThickness+" px";
-        saveSetting("lineThickness", lineThickness);
-    };
-
-    // NEW: Red dot offset slider
-    document.getElementById("offsetSlider").value = redOffset;
-    document.getElementById("offsetValue").innerText = redOffset + " px";
-    document.getElementById("offsetSlider").oninput = (e)=>{
-        redOffset = Number(e.target.value);
-        document.getElementById("offsetValue").innerText = redOffset + " px";
-        saveSetting("redOffset", redOffset);
-    };
-
-    // Preview visibility
-    document.getElementById("showPreview").onchange=(e)=>{
-        showPreviewState=e.target.checked;
-        previewBox.style.display = showPreviewState ? "block" : "none";
-        saveSetting("showPreview",showPreviewState);
-    };
-
-    // Night exposure (flag only, not used here)
-    document.getElementById("autoExpBox").checked = nightBoostEnabled;
-    document.getElementById("autoExpBox").onchange=(e)=>{
-        nightBoostEnabled=e.target.checked;
-        saveSetting("nightBoost",nightBoostEnabled);
-    };
-
-    // ===============================================================
-    // FLASH CONTROL
-    // ===============================================================
-    let flashOn=false;
-    document.getElementById("flashBtn").onclick=()=>{
-        if(!currentTrack) return;
-        const caps=currentTrack.getCapabilities();
-        if(!("torch" in caps)){ alert("Flash not supported"); return; }
-
-        flashOn=!flashOn;
-        currentTrack.applyConstraints({ advanced:[{torch:flashOn}] });
-        document.getElementById("flashBtn").innerText = flashOn?"Flash ON":"Flash OFF";
-    };
-
-    // ===============================================================
-    // CAMERA SELECTION
-    // ===============================================================
-    async function listCams(){
-        const devs=await navigator.mediaDevices.enumerateDevices();
-        const cams=devs.filter(d=>d.kind==="videoinput");
-
-        const sel=document.getElementById("cameraSelect");
-        sel.innerHTML="";
-        cams.forEach((cam,i)=>{
-            let o=document.createElement("option");
-            o.value=cam.deviceId;
-            o.text=cam.label || "Camera "+i;
-            sel.appendChild(o);
-        });
-
-        sel.onchange=()=>startCamera(sel.value);
-        if(cams.length) startCamera(cams[0].deviceId);
-    }
-    listCams();
-
-    // ===============================================================
-    // START CAMERA
-    // ===============================================================
-    async function startCamera(id){
-
-        if(window.stream) window.stream.getTracks().forEach(t=>t.stop());
-
-        window.stream = await navigator.mediaDevices.getUserMedia({
-            video:{
-                deviceId:{exact:id},
-                facingMode:"environment",
-                width:{ideal:1920}, height:{ideal:1080}
-            }
-        });
-
-        video.srcObject=window.stream;
-        currentTrack=window.stream.getVideoTracks()[0];
+/* =========================
+   Camera functions (YOUR STYLE)
+========================= */
+async function startCamera(deviceId){
+  try{
+    if(currentStream){
+      currentStream.getTracks().forEach(t=>t.stop());
+      currentStream=null;
+      currentTrack=null;
     }
 
-    // ===============================================================
-    // MAIN LOOP
-    // ===============================================================
-    function loop(){
+    const constraints = {
+      video:{
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        facingMode: "environment",
+        width:{ ideal:1920 },
+        height:{ ideal:1080 }
+      },
+      audio:false
+    };
 
-        updateFPS();
+    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = currentStream;
+    currentTrack = currentStream.getVideoTracks()[0];
+    torchOn=false;
+    btnTorch.textContent = "Torch OFF";
 
-        if(!video.videoWidth){ requestAnimationFrame(loop); return; }
+    statusText.textContent = "Camera running ✅";
 
-        canvas.width=video.videoWidth;
-        canvas.height=video.videoHeight;
-
-        ctx2.drawImage(video,0,0);
-        let frame=cv.imread(canvas);
-        let h=frame.rows, w=frame.cols;
-
-        // ---------------------------------------------------------
-        // ASPECT-RATIO THRESHOLD PREVIEW
-        // ---------------------------------------------------------
-        let fullGray=new cv.Mat();
-        cv.cvtColor(frame,fullGray,cv.COLOR_RGBA2GRAY);
-
-        let fullMask=new cv.Mat();
-        cv.threshold(fullGray,fullMask,thresholdValue,255,cv.THRESH_BINARY_INV);
-        cv.bitwise_not(fullMask,fullMask);
-
-        let fw=w, fh=h;
-        let maxW=200, maxH=200;
-        let scale=Math.min(maxW/fw, maxH/fh);
-        let pw=Math.round(fw*scale);
-        let ph=Math.round(fh*scale);
-
-        previewCanvas.width=pw;
-        previewCanvas.height=ph;
-
-        let small=new cv.Mat();
-        cv.resize(fullMask,small,new cv.Size(pw,ph));
-
-        let smallRGBA=new cv.Mat();
-        cv.cvtColor(small,smallRGBA,cv.COLOR_GRAY2RGBA);
-        cv.imshow(previewCanvas,smallRGBA);
-
-        small.delete(); smallRGBA.delete(); fullGray.delete();
-
-        // ---------------------------------------------------------
-        // ROI computation (height + vertical position)
-        // ---------------------------------------------------------
-        let roi_h=Math.floor(h*(roiPercent/100));
-        if (roi_h < 1) roi_h = 1;
-        if (roi_h > h) roi_h = h;
-
-        let roi_center=Math.floor(h*(roiCenterPercent/100));
-        let roi_y1=roi_center - Math.floor(roi_h/2);
-        let roi_y2=roi_y1 + roi_h;
-
-        if(roi_y1 < 0){ roi_y1 = 0; roi_y2 = roi_h; }
-        if(roi_y2 > h){ roi_y2 = h; roi_y1 = h - roi_h; }
-
-        let roi_x1=detectLeft?10:100;
-        let roi_x2=detectLeft?(w-100):(w-10);
-        let roi_w=roi_x2-roi_x1;
-
-        let roiRect=new cv.Rect(roi_x1,roi_y1,roi_w,roi_h);
-        let roi=frame.roi(roiRect);
-
-        let grayR=new cv.Mat();
-        cv.cvtColor(roi,grayR,cv.COLOR_RGBA2GRAY);
-
-        let invR=new cv.Mat();
-        cv.threshold(grayR,invR,thresholdValue,255,cv.THRESH_BINARY_INV);
-        cv.bitwise_not(invR,invR);
-
-        let contours=new cv.MatVector();
-        let hier=new cv.Mat();
-        cv.findContours(invR,contours,hier,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
-
-        let blobs=[], borders=[], dashed=[];
-
-        function toPts(cnt){
-            const d=cnt.data32S;
-            let pts=[];
-            for(let i=0;i<d.length;i+=2)
-                pts.push({x:d[i],y:d[i+1]});
-            return pts;
-        }
-
-        let filteredMask=cv.Mat.zeros(invR.rows,invR.cols,cv.CV_8UC1);
-
-        for(let i=0;i<contours.size();i++){
-            let cnt=contours.get(i);
-            let r=cv.boundingRect(cnt);
-            let area=r.width*r.height;
-
-            if(area>=minBlobSize){
-                cv.drawContours(filteredMask,contours,i,new cv.Scalar(255),-1);
-                let x=r.x,y=r.y,w2=r.width,h2=r.height;
-                let cx=x+w2/2;
-
-                let L=(x<=0), R=(x+w2>=roi_w-1);
-                let T=(y<=0), B=(y+h2>=roi_h-1);
-
-                let isBorder=(T&&B)||(L&&T)||(L&&B)||(R&&T)||(R&&B);
-                blobs.push({pts:toPts(cnt),cx,isBorder, tb:(T&&B)});
-                if(isBorder) borders.push({pts:toPts(cnt),cx});
-                else dashed.push({pts:toPts(cnt),cx});
-            }
-            cnt.delete();
-        }
-
-        let maskRGBA=new cv.Mat();
-        cv.cvtColor(filteredMask,maskRGBA,cv.COLOR_GRAY2RGBA);
-        let tmp=document.createElement("canvas");
-        tmp.width=filteredMask.cols; tmp.height=filteredMask.rows;
-        cv.imshow(tmp,maskRGBA);
-        ctx2.drawImage(tmp,roi_x1,roi_y1);
-        maskRGBA.delete(); filteredMask.delete();
-
-        // =============================================================
-        // MAIN LINE SELECTION + DRAWING
-        // =============================================================
-        let mean_d = dashed.length
-            ? dashed.reduce((s,b)=>s+b.cx,0)/dashed.length
-            : roi_w/2;
-
-        let main=null;
-
-        if(borders.length){
-            if(detectLeft){
-                let Ls=borders.filter(b=>b.cx<=mean_d);
-                main = Ls.length
-                    ? Ls.reduce((a,b)=>Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b)
-                    : borders.reduce((a,b)=>Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b);
-            } else {
-                let Rs=borders.filter(b=>b.cx>=mean_d);
-                main = Rs.length
-                    ? Rs.reduce((a,b)=>Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b)
-                    : borders.reduce((a,b)=>Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b);
-            }
-        }
-
-        const PURPLE = "#AA00FF";
-        const BLUE   = "#00AFFF";
-        const DGREEN = "#00CC00";
-
-        function drawPts(pts,ox,oy,color){
-            ctx2.strokeStyle=color;
-            ctx2.lineWidth=lineThickness;
-            ctx2.beginPath();
-            let first=true;
-            for(let p of pts){
-                let px=ox+p.x, py=oy+p.y;
-                if(first){ ctx2.moveTo(px,py); first=false; }
-                else ctx2.lineTo(px,py);
-            }
-            ctx2.stroke();
-        }
-
-        let main_cx=null;
-        let greens=[];
-
-        if(main){
-            main_cx=main.cx;
-            drawPts(main.pts,roi_x1,roi_y1, detectLeft?PURPLE:BLUE);
-        }
-
-        for(let b of blobs){
-            if(b.isBorder) continue;
-            if(b.tb) continue;
-            if(main_cx!=null){
-                if(detectLeft && !(b.cx>main_cx)) continue;
-                if(!detectLeft && !(b.cx<main_cx)) continue;
-            }
-            drawPts(b.pts,roi_x1,roi_y1,DGREEN);
-            greens.push(b.cx);
-        }
-
-        // =============================================================
-        // LANE BOUNDARIES (INNER PURPLE/BLUE AND INNER GREEN)
-        // (still used for vertical lines)
-        // =============================================================
-        let laneLeft = null;   // ROI-local
-        let laneRight = null;  // ROI-local
-
-        if(main_cx != null && greens.length){
-            if(detectLeft){
-                laneLeft = main_cx;
-                let rightCandidates = greens.filter(g => g > main_cx);
-                if(rightCandidates.length){
-                    laneRight = rightCandidates.reduce((a,b)=>
-                        Math.abs(a-main_cx) < Math.abs(b-main_cx) ? a : b
-                    );
-                }
-            } else {
-                laneRight = main_cx;
-                let leftCandidates = greens.filter(g => g < main_cx);
-                if(leftCandidates.length){
-                    laneLeft = leftCandidates.reduce((a,b)=>
-                        Math.abs(a-main_cx) < Math.abs(b-main_cx) ? a : b
-                    );
-                }
-            }
-        }
-
-        if(laneLeft != null && laneRight != null){
-            lastLaneLeft = laneLeft;
-            lastLaneRight = laneRight;
-        }
-
-        let useLeft = laneLeft;
-        let useRight = laneRight;
-        if(useLeft == null || useRight == null){
-            if(lastLaneLeft != null && lastLaneRight != null){
-                useLeft = lastLaneLeft;
-                useRight = lastLaneRight;
-            }
-        }
-
-        // =============================================================
-        // YELLOW HORIZONTAL LINE + VERTICAL LINES + RED DOT (ANCHOR)
-        // =============================================================
-        let lineY = Math.round((roi_y1 + roi_y2) / 2);
-
-        // Draw horizontal yellow line always
-        ctx2.strokeStyle = "yellow";
-        ctx2.lineWidth = 2;
-        ctx2.beginPath();
-        ctx2.moveTo(roi_x1, lineY);
-        ctx2.lineTo(roi_x2, lineY);
-        ctx2.stroke();
-
-        // Vertical yellow lines at lane boundaries (if available)
-        if(useLeft != null && useRight != null){
-            let xL = Math.round(roi_x1 + useLeft);
-            let xR = Math.round(roi_x1 + useRight);
-
-            ctx2.strokeStyle = "yellow";
-            ctx2.lineWidth = 2;
-
-            ctx2.beginPath();
-            ctx2.moveTo(xL, roi_y1);
-            ctx2.lineTo(xL, roi_y2);
-            ctx2.stroke();
-
-            ctx2.beginPath();
-            ctx2.moveTo(xR, roi_y1);
-            ctx2.lineTo(xR, roi_y2);
-            ctx2.stroke();
-        }
-
-        // -------------------------------
-        // RED DOT: anchored to main line
-        // -------------------------------
-        let redX, redY;
-
-        if(main_cx != null){
-            // Anchor to main line (purple/blue) + offset
-            let localRed = main_cx + redOffset;
-            if(localRed < 0) localRed = 0;
-            if(localRed > roi_w-1) localRed = roi_w-1;
-
-            redX = Math.round(roi_x1 + localRed);
-            redY = lineY;
-            lastRedX = redX;
-            lastRedY = redY;
-        } else if (lastRedX !== null && lastRedY !== null){
-            // No main line detected, keep last position
-            redX = lastRedX;
-            redY = lastRedY;
-        } else {
-            // No info yet, default to ROI center
-            redX = Math.round(roi_x1 + roi_w / 2);
-            redY = lineY;
-            lastRedX = redX;
-            lastRedY = redY;
-        }
-
-        // Red circle at current redX, redY
-        ctx2.fillStyle="red";
-        ctx2.beginPath();
-        ctx2.arc(redX, redY, 10, 0, Math.PI*2);
-        ctx2.fill();
-
-        // ROI rectangle
-        ctx2.strokeStyle="cyan";
-        ctx2.lineWidth=3;
-        ctx2.strokeRect(roi_x1,roi_y1,roi_w,roi_h);
-
-        // MODE & FPS (50px font)
-        ctx2.fillStyle="yellow";
-        ctx2.font="50px Arial";
-        ctx2.fillText(
-            detectLeft?"MODE LEFT (purple)":"MODE RIGHT (blue)",
-            10,60
-        );
-        ctx2.fillText("FPS: "+fps,10,120);
-
-        // RED COORD TEXT at bottom of frame (50px)
-        ctx2.fillStyle = "red";
-        ctx2.font = "50px Arial";
-        ctx2.fillText(
-            "Red dot: (" + redX + ", " + redY + ")",
-            10,
-            h - 20
-        );
-
-        frame.delete(); roi.delete(); grayR.delete(); invR.delete();
-        contours.delete(); hier.delete(); fullMask.delete();
-
-        requestAnimationFrame(loop);
-    }
-
-    requestAnimationFrame(loop);
+  }catch(err){
+    console.error("startCamera error", err);
+    statusText.textContent = "Cannot start camera: " + err.name;
+    alert("Camera failed: " + err.name);
+  }
 }
 
-// FPS helper
+async function listCams(){
+  try{
+    // Permission warm-up so labels show
+    try{
+      const temp = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
+      temp.getTracks().forEach(t=>t.stop());
+    }catch(e){ console.warn("perm warm-up failed", e); }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d=>d.kind==="videoinput");
+
+    cameraSelect.innerHTML = "";
+    cams.forEach((cam,i)=>{
+      const opt = document.createElement("option");
+      opt.value = cam.deviceId;
+      opt.textContent = cam.label || ("Camera " + i);
+      cameraSelect.appendChild(opt);
+    });
+
+    cameraSelect.onchange = ()=> startCamera(cameraSelect.value);
+
+    if(cams.length){
+      // Prefer back/rear/environment label
+      let preferred = cams[0];
+      const backCam = cams.find(c=>{
+        const s=(c.label||"").toLowerCase();
+        return s.includes("back") || s.includes("rear") || s.includes("environment");
+      });
+      if(backCam) preferred = backCam;
+
+      cameraSelect.value = preferred.deviceId;
+      await startCamera(preferred.deviceId);
+    }else{
+      statusText.textContent = "No camera found";
+      alert("No camera found");
+    }
+  }catch(err){
+    console.error("listCams error", err);
+    statusText.textContent = "Camera error: " + err.name;
+    alert("Camera error: " + err.name);
+  }
+}
+
+btnRefreshCam.onclick = async ()=>{
+  // Refresh list + restart selected (best for phone when cameras appear later)
+  await listCams();
+};
+
+btnTorch.onclick = ()=>{
+  if(!currentTrack){ alert("No active camera"); return; }
+  const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
+  if(!("torch" in caps)){ alert("Torch not supported"); return; }
+
+  torchOn = !torchOn;
+  currentTrack.applyConstraints({ advanced:[{ torch: torchOn }] });
+  btnTorch.textContent = torchOn ? "Torch ON" : "Torch OFF";
+};
+
+/* =========================
+   OpenCV init
+========================= */
+let cvReady=false;
+let Module = { onRuntimeInitialized(){ cvReady=true; statusText.textContent="OpenCV ready ✅"; } };
+
+/* =========================
+   Drawing helpers
+========================= */
+const PURPLE = "#AA00FF";
+const BLUE   = "#00AFFF";
+const DGREEN = "#00CC00";
+
+function drawPts(pts, ox, oy, color){
+  ctx2.strokeStyle = color;
+  ctx2.lineWidth = lineThickness;
+  ctx2.beginPath();
+  let first=true;
+  for(const p of pts){
+    const px = ox + p.x;
+    const py = oy + p.y;
+    if(first){ ctx2.moveTo(px,py); first=false; }
+    else ctx2.lineTo(px,py);
+  }
+  ctx2.stroke();
+}
+
+/* =========================
+   FPS
+========================= */
 function updateFPS(){
-    frames++;
-    let now=performance.now();
-    if(now-last>=1000){
-        fps=frames; frames=0; last=now;
-    }
+  frames++;
+  const now = performance.now();
+  if(now-last>=1000){
+    fps=frames;
+    frames=0;
+    last=now;
+  }
 }
-</script>
 
+/* =========================
+   Main loop
+========================= */
+function loop(){
+  requestAnimationFrame(loop);
+  if(!cvReady) return;
+  if(paused) return;
+  if(!video.videoWidth || !video.videoHeight) return;
+
+  updateFPS();
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  // draw video
+  ctx2.save();
+  if(chkMirror.checked){
+    ctx2.translate(canvas.width, 0);
+    ctx2.scale(-1, 1);
+  }
+  ctx2.drawImage(video,0,0);
+  ctx2.restore();
+
+  // read frame for OpenCV
+  let frame = cv.imread(canvas);
+  const h = frame.rows, w = frame.cols;
+
+  // ---- threshold preview of ENTIRE frame (keeps aspect ratio)
+  if(showPreviewState){
+    const fullGray = new cv.Mat();
+    cv.cvtColor(frame, fullGray, cv.COLOR_RGBA2GRAY);
+
+    const fullMask = new cv.Mat();
+    cv.threshold(fullGray, fullMask, thresholdValue, 255, cv.THRESH_BINARY_INV);
+    cv.bitwise_not(fullMask, fullMask);
+
+    const fw=w, fh=h;
+    const maxW=220, maxH=220;
+    const scale=Math.min(maxW/fw, maxH/fh);
+    const pw=Math.max(1, Math.round(fw*scale));
+    const ph=Math.max(1, Math.round(fh*scale));
+
+    previewCanvas.width=pw;
+    previewCanvas.height=ph;
+
+    const small = new cv.Mat();
+    cv.resize(fullMask, small, new cv.Size(pw, ph));
+
+    const smallRGBA = new cv.Mat();
+    cv.cvtColor(small, smallRGBA, cv.COLOR_GRAY2RGBA);
+    cv.imshow(previewCanvas, smallRGBA);
+
+    fullGray.delete(); fullMask.delete(); small.delete(); smallRGBA.delete();
+  }
+
+  // ---- ROI position
+  let roi_h = Math.floor(h*(roiPercent/100));
+  roi_h = Math.max(1, Math.min(h, roi_h));
+
+  let roi_center = Math.floor(h*(roiCenterPercent/100));
+  let roi_y1 = roi_center - Math.floor(roi_h/2);
+  let roi_y2 = roi_y1 + roi_h;
+
+  if(roi_y1<0){ roi_y1=0; roi_y2=roi_h; }
+  if(roi_y2>h){ roi_y2=h; roi_y1=h-roi_h; }
+
+  let roi_x1 = detectLeft ? 10 : 100;
+  let roi_x2 = detectLeft ? (w-100) : (w-10);
+  roi_x1 = Math.max(0, Math.min(w-1, roi_x1));
+  roi_x2 = Math.max(roi_x1+1, Math.min(w, roi_x2));
+
+  const roi_w = roi_x2 - roi_x1;
+
+  const roiRect = new cv.Rect(roi_x1, roi_y1, roi_w, roi_h);
+  const roi = frame.roi(roiRect);
+
+  const grayR = new cv.Mat();
+  cv.cvtColor(roi, grayR, cv.COLOR_RGBA2GRAY);
+
+  const invR = new cv.Mat();
+  cv.threshold(grayR, invR, thresholdValue, 255, cv.THRESH_BINARY_INV);
+  cv.bitwise_not(invR, invR);
+
+  const contours = new cv.MatVector();
+  const hier = new cv.Mat();
+  cv.findContours(invR, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+  // build filtered blobs
+  const blobs=[];
+  const borders=[];
+  const dashed=[];
+  const roiH = invR.rows, roiW = invR.cols;
+
+  function toPts(cnt){
+    const d = cnt.data32S;
+    const pts=[];
+    for(let i=0;i<d.length;i+=2) pts.push({x:d[i], y:d[i+1]});
+    return pts;
+  }
+
+  for(let i=0;i<contours.size();i++){
+    const cnt = contours.get(i);
+    const r = cv.boundingRect(cnt);
+    const area = r.width*r.height;
+
+    if(area >= minBlobSize){
+      const x=r.x, y=r.y, ww=r.width, hh=r.height;
+      const cx = x + ww/2;
+
+      const L = (x<=0);
+      const R = (x+ww >= roiW-1);
+      const T = (y<=0);
+      const B = (y+hh >= roiH-1);
+
+      const isBorder = (T&&B)||(L&&T)||(L&&B)||(R&&T)||(R&&B);
+      const tb = (T&&B);
+
+      const info = { pts:toPts(cnt), cx, isBorder, tb };
+      blobs.push(info);
+      if(isBorder) borders.push(info);
+      else dashed.push(info);
+    }
+    cnt.delete();
+  }
+
+  // mean dashed center
+  const mean_d = dashed.length ? dashed.reduce((s,b)=>s+b.cx,0)/dashed.length : roiW/2;
+
+  // pick main border blob
+  let main=null;
+  if(borders.length){
+    if(detectLeft){
+      const Ls = borders.filter(b=>b.cx<=mean_d);
+      main = (Ls.length?Ls:borders).reduce((a,b)=>
+        Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b
+      );
+    }else{
+      const Rs = borders.filter(b=>b.cx>=mean_d);
+      main = (Rs.length?Rs:borders).reduce((a,b)=>
+        Math.abs(a.cx-mean_d)<Math.abs(b.cx-mean_d)?a:b
+      );
+    }
+  }
+
+  let main_cx=null;
+  const greens=[];
+
+  if(main){
+    main_cx = main.cx;
+    drawPts(main.pts, roi_x1, roi_y1, detectLeft?PURPLE:BLUE);
+  }
+
+  // green blobs (not border, not top-bottom)
+  for(const b of blobs){
+    if(b.isBorder) continue;
+    if(b.tb) continue;
+    if(main_cx!=null){
+      if(detectLeft && !(b.cx>main_cx)) continue;
+      if(!detectLeft && !(b.cx<main_cx)) continue;
+    }
+    drawPts(b.pts, roi_x1, roi_y1, DGREEN);
+    greens.push(b.cx);
+  }
+
+  // lane boundaries (for vertical yellow lines)
+  let laneLeft=null, laneRight=null;
+  if(main_cx!=null && greens.length){
+    if(detectLeft){
+      laneLeft = main_cx;
+      const candidates = greens.filter(g=>g>main_cx);
+      if(candidates.length){
+        laneRight = candidates.reduce((a,b)=> Math.abs(a-main_cx)<Math.abs(b-main_cx)?a:b);
+      }
+    }else{
+      laneRight = main_cx;
+      const candidates = greens.filter(g=>g<main_cx);
+      if(candidates.length){
+        laneLeft = candidates.reduce((a,b)=> Math.abs(a-main_cx)<Math.abs(b-main_cx)?a:b);
+      }
+    }
+  }
+
+  if(laneLeft!=null && laneRight!=null){
+    lastLaneLeft=laneLeft; lastLaneRight=laneRight;
+  }
+
+  const useLeft = (laneLeft!=null && laneRight!=null) ? laneLeft : lastLaneLeft;
+  const useRight = (laneLeft!=null && laneRight!=null) ? laneRight : lastLaneRight;
+
+  // yellow horizontal line always
+  const lineY = Math.round((roi_y1+roi_y2)/2);
+  ctx2.strokeStyle="yellow";
+  ctx2.lineWidth=2;
+  ctx2.beginPath();
+  ctx2.moveTo(roi_x1, lineY);
+  ctx2.lineTo(roi_x2, lineY);
+  ctx2.stroke();
+
+  // vertical lines if we have boundaries (current or last)
+  if(useLeft!=null && useRight!=null){
+    const xL = Math.round(roi_x1+useLeft);
+    const xR = Math.round(roi_x1+useRight);
+
+    ctx2.strokeStyle="yellow";
+    ctx2.lineWidth=2;
+
+    ctx2.beginPath(); ctx2.moveTo(xL, roi_y1); ctx2.lineTo(xL, roi_y2); ctx2.stroke();
+    ctx2.beginPath(); ctx2.moveTo(xR, roi_y1); ctx2.lineTo(xR, roi_y2); ctx2.stroke();
+  }
+
+  // red dot anchored to main line + offset, else keep last, else center
+  let redX, redY=lineY;
+
+  if(main_cx!=null){
+    let local = main_cx + redOffset;
+    local = Math.max(0, Math.min(roiW-1, local));
+    redX = Math.round(roi_x1 + local);
+    lastRedX = redX; lastRedY = redY;
+  }else if(lastRedX!=null){
+    redX = lastRedX;
+    redY = lastRedY;
+  }else{
+    redX = Math.round(roi_x1 + roiW/2);
+    lastRedX = redX; lastRedY = redY;
+  }
+
+  ctx2.fillStyle="red";
+  ctx2.beginPath();
+  ctx2.arc(redX, redY, 10, 0, Math.PI*2);
+  ctx2.fill();
+
+  // ROI rectangle
+  ctx2.strokeStyle="cyan";
+  ctx2.lineWidth=3;
+  ctx2.strokeRect(roi_x1, roi_y1, roi_w, roi_h);
+
+  // big HUD text
+  ctx2.fillStyle="yellow";
+  ctx2.font="50px Arial";
+  ctx2.fillText(detectLeft?"MODE LEFT (purple)":"MODE RIGHT (blue)", 10, 60);
+  ctx2.fillText("FPS: "+fps, 10, 120);
+
+  ctx2.fillStyle="red";
+  ctx2.font="50px Arial";
+  ctx2.fillText("Red dot: ("+redX+", "+redY+")", 10, h-20);
+
+  // cleanup
+  roi.delete(); grayR.delete(); invR.delete();
+  contours.delete(); hier.delete(); frame.delete();
+}
+
+/* =========================
+   Start
+========================= */
+(async function init(){
+  statusText.textContent = "Loading OpenCV…";
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    statusText.textContent = "Camera API not supported";
+    alert("Camera API not supported in this browser");
+    return;
+  }
+  await listCams();
+  requestAnimationFrame(loop);
+})();
+</script>
 </body>
 </html>
