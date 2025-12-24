@@ -150,6 +150,14 @@
           <span class="valueLabel" id="thickValue">2 px</span>
         </div>
 
+        <!-- New: Red dot mode selector -->
+        <div class="checkboxRow" style="margin-top:6px;">
+          <label>
+            <input type="checkbox" id="chkOffsetMode">
+            Use Offset Mode (else use Lane Center)
+          </label>
+        </div>
+
         <div class="formRow">
           <label>Red Dot Offset</label>
           <input type="range" id="offsetSlider" min="-300" max="300" value="0">
@@ -224,6 +232,8 @@ let lineThickness = loadSetting("lineThickness", 2);
 let redOffset = loadSetting("redOffset", 0);
 let showPreviewState = loadSetting("showPreview", false);
 
+let useOffsetMode = loadSetting("useOffsetMode", true); // NEW
+
 let paused = loadSetting("paused", false);
 chkPaused.checked = paused;
 
@@ -293,6 +303,13 @@ offsetSlider.oninput = e=>{
   redOffset = Number(e.target.value);
   offsetValue.textContent = redOffset + " px";
   saveSetting("redOffset", redOffset);
+};
+
+const chkOffsetMode = document.getElementById("chkOffsetMode"); // NEW
+chkOffsetMode.checked = useOffsetMode;
+chkOffsetMode.onchange = e=>{
+  useOffsetMode = e.target.checked;
+  saveSetting("useOffsetMode", useOffsetMode);
 };
 
 const showPreview = document.getElementById("showPreview");
@@ -640,7 +657,7 @@ function loop(){
     lastLaneLeft=laneLeft; lastLaneRight=laneRight;
   }
 
-  const useLeft = (laneLeft!=null && laneRight!=null) ? laneLeft : lastLaneLeft;
+  const useLeft  = (laneLeft!=null && laneRight!=null) ? laneLeft  : lastLaneLeft;
   const useRight = (laneLeft!=null && laneRight!=null) ? laneRight : lastLaneRight;
 
   // horizontal yellow line always
@@ -663,10 +680,36 @@ function loop(){
     ctx2.beginPath(); ctx2.moveTo(xR, roi_y1); ctx2.lineTo(xR, roi_y2); ctx2.stroke();
   }
 
-  // red dot anchored to main line + offset, else last, else center
+  /* =========================
+     NEW RED DOT LOGIC
+     - Anchor switches with mode:
+       MODE LEFT  -> anchor = left line
+       MODE RIGHT -> anchor = right line
+     - Checkbox selects:
+       offset mode -> anchor + redOffset
+       center mode -> midpoint between left & right lines
+  ========================= */
   let redX, redY=lineY;
-  if(main_cx!=null){
-    let local = main_cx + redOffset;
+
+  const haveBounds = (useLeft!=null && useRight!=null);
+
+  // compute anchor in ROI-local coords
+  let anchorLocal = null;
+  if(haveBounds){
+    anchorLocal = detectLeft ? useLeft : useRight;
+  }else if(main_cx!=null){
+    // fallback if bounds not available yet
+    anchorLocal = main_cx;
+  }
+
+  if(!useOffsetMode && haveBounds){
+    // lane center mode: midpoint of left & right yellow vertical lines
+    const centerLocal = (useLeft + useRight) / 2;
+    redX = Math.round(roi_x1 + centerLocal);
+    lastRedX=redX; lastRedY=redY;
+  }else if(anchorLocal!=null){
+    // offset mode (or fallback): anchor line + offset
+    let local = anchorLocal + redOffset;
     local = Math.max(0, Math.min(roiW-1, local));
     redX = Math.round(roi_x1 + local);
     lastRedX=redX; lastRedY=redY;
@@ -718,4 +761,3 @@ function loop(){
 </script>
 </body>
 </html>
-
