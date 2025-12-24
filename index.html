@@ -247,7 +247,6 @@ let lastLaneLeft=null, lastLaneRight=null;
 document.getElementById("toggleMode").onclick = ()=>{
   detectLeft=!detectLeft;
   saveSetting("detectLeft", detectLeft);
-  // (no extra logic needed; red dot anchor will follow detectLeft each frame)
 };
 
 const thSlider = document.getElementById("thSlider");
@@ -689,44 +688,42 @@ function loop(){
   }
 
   /* =========================================================
-     RED DOT (UPDATED)
-     - Always anchors to LEFT or RIGHT lane line based on mode.
-     - Checkbox selects:
-        ✅ Offset Mode: anchorLine ± offset
-        ⛔ Center Mode: middle between left+right lines (no offset)
+     RED DOT (MODE-AWARE OFFSET DIRECTION)
+     - LEFT mode:  anchor (pink line)  + offset  -> to the right
+     - RIGHT mode: anchor (blue line)  - offset  -> to the left
+     - Center mode: middle between left+right lines (no offset)
   ========================================================= */
   let redX, redY=lineY;
 
-  // pick the anchor line based on mode (prefer actual lane boundary, fallback to main line)
-  let anchorLocal = null; // local x inside ROI
+  // anchor line based on mode (prefer detected boundaries; fallback to main line)
+  let anchorLocal = null; // x inside ROI
   if(detectLeft){
     anchorLocal = (useLeft!=null) ? useLeft : main_cx;
   }else{
     anchorLocal = (useRight!=null) ? useRight : main_cx;
   }
 
-  // choose dot local position
   let local = null;
 
   if(!useOffsetModeState){
-    // CENTER MODE: middle of left/right lines at the middle horizontal line
+    // CENTER MODE
     if(useLeft!=null && useRight!=null){
       local = (useLeft + useRight) / 2;
     }else if(anchorLocal!=null){
-      // if one boundary missing, fallback to whichever we have
       local = anchorLocal;
     }else{
       local = roiW/2;
     }
   }else{
-    // OFFSET MODE: anchored to mode's line ± offset
+    // OFFSET MODE (flip direction by mode)
+    const signedOffset = detectLeft ? (+redOffset) : (-redOffset);
+
     if(anchorLocal!=null){
-      local = anchorLocal + redOffset;
+      local = anchorLocal + signedOffset;
     }else if(lastRedX!=null){
-      // can't compute local; will use lastRedX below
-      local = null;
+      local = null; // fallback to lastRedX below
     }else{
-      local = roiW/2 + redOffset;
+      local = (roiW/2) + signedOffset;
     }
   }
 
