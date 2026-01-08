@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Lane Detection (HTML5 + OpenCV.js)</title>
+<title>Lane Detector</title>
 
 <style>
   :root { --bg:#111; --fg:#eee; --card:#181818; --line:#333; }
@@ -91,7 +91,7 @@
 
 <body>
   <div id="topBar">
-    <strong>Lane Detection (HTML5 + OpenCV.js)</strong>
+    <strong>Lane Detector</strong>
     <span id="statusText"></span>
   </div>
 
@@ -146,11 +146,16 @@
 
         <div class="formRow">
           <label>Line Thickness</label>
-          <input type="range" id="thickSlider" min="1" max="10" value="2">
+          <input type="range" id="thickSlider" min="1" max="30" value="2">
           <span class="valueLabel" id="thickValue">2 px</span>
         </div>
 
-        <!-- NEW: red dot mode checkbox -->
+        <div class="formRow">
+          <label>Red Dot Size</label>
+          <input type="range" id="dotSizeSlider" min="3" max="40" value="10">
+          <span class="valueLabel" id="dotSizeValue">10 px</span>
+        </div>
+
         <div class="checkboxRow" style="margin-top:2px;">
           <label><input type="checkbox" id="useOffsetMode"> Use Offset Mode (anchor line ± offset)</label>
         </div>
@@ -227,8 +232,9 @@ let roiPercent = loadSetting("roiPercent", 20);
 let roiCenterPercent = loadSetting("roiCenterPercent", 75);
 let lineThickness = loadSetting("lineThickness", 2);
 
+let dotSize = loadSetting("dotSize", 10);
 let redOffset = loadSetting("redOffset", 0);
-let useOffsetModeState = loadSetting("useOffsetMode", true); // NEW
+let useOffsetModeState = loadSetting("useOffsetMode", true);
 
 let showPreviewState = loadSetting("showPreview", false);
 
@@ -294,7 +300,17 @@ thickSlider.oninput = e=>{
   saveSetting("lineThickness", lineThickness);
 };
 
-const useOffsetMode = document.getElementById("useOffsetMode"); // NEW
+const dotSizeSlider = document.getElementById("dotSizeSlider");
+const dotSizeValue  = document.getElementById("dotSizeValue");
+dotSizeSlider.value = dotSize;
+dotSizeValue.textContent = dotSize + " px";
+dotSizeSlider.oninput = e=>{
+  dotSize = Number(e.target.value);
+  dotSizeValue.textContent = dotSize + " px";
+  saveSetting("dotSize", dotSize);
+};
+
+const useOffsetMode = document.getElementById("useOffsetMode");
 useOffsetMode.checked = useOffsetModeState;
 
 const offsetSlider = document.getElementById("offsetSlider");
@@ -434,7 +450,7 @@ async function listCams(){
 }
 
 btnRefreshCam.onclick = async ()=>{
-  await listCams(); // refresh list + restart
+  await listCams();
 };
 
 btnTorch.onclick = ()=>{
@@ -469,9 +485,10 @@ function updateFPS(){
 /* =========================
    Draw polyline
 ========================= */
-const PURPLE = "#AA00FF";
-const BLUE   = "#00AFFF";
-const DGREEN = "#00CC00";
+/* Darker colors requested */
+const PURPLE = "#6A00A8";
+const BLUE   = "#0070B8";
+const DGREEN = "#007A00";
 
 function drawPts(pts, ox, oy, color){
   ctx2.strokeStyle = color;
@@ -574,7 +591,8 @@ function loop(){
   cv.findContours(invR, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
   const blobs=[], borders=[], dashed=[];
-  const roiH=invR.rows, roiW=invR.cols;
+  const roiW = invR.cols;
+  const roiH = invR.rows;
 
   function toPts(cnt){
     const d=cnt.data32S;
@@ -689,13 +707,12 @@ function loop(){
 
   /* =========================================================
      RED DOT (MODE-AWARE OFFSET DIRECTION)
-     - LEFT mode:  anchor (pink line)  + offset  -> to the right
-     - RIGHT mode: anchor (blue line)  - offset  -> to the left
+     - LEFT mode:  anchor (purple line) + offset -> right
+     - RIGHT mode: anchor (blue line)   - offset -> left
      - Center mode: middle between left+right lines (no offset)
   ========================================================= */
   let redX, redY=lineY;
 
-  // anchor line based on mode (prefer detected boundaries; fallback to main line)
   let anchorLocal = null; // x inside ROI
   if(detectLeft){
     anchorLocal = (useLeft!=null) ? useLeft : main_cx;
@@ -706,7 +723,6 @@ function loop(){
   let local = null;
 
   if(!useOffsetModeState){
-    // CENTER MODE
     if(useLeft!=null && useRight!=null){
       local = (useLeft + useRight) / 2;
     }else if(anchorLocal!=null){
@@ -715,13 +731,11 @@ function loop(){
       local = roiW/2;
     }
   }else{
-    // OFFSET MODE (flip direction by mode)
     const signedOffset = detectLeft ? (+redOffset) : (-redOffset);
-
     if(anchorLocal!=null){
       local = anchorLocal + signedOffset;
     }else if(lastRedX!=null){
-      local = null; // fallback to lastRedX below
+      local = null;
     }else{
       local = (roiW/2) + signedOffset;
     }
@@ -740,7 +754,7 @@ function loop(){
 
   ctx2.fillStyle="red";
   ctx2.beginPath();
-  ctx2.arc(redX, redY, 10, 0, Math.PI*2);
+  ctx2.arc(redX, redY, dotSize, 0, Math.PI*2);
   ctx2.fill();
 
   // ROI rectangle
