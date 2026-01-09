@@ -21,26 +21,56 @@
   }
   #statusText{ opacity:.9; }
 
+  /* IMPORTANT: prevent camera frame from resizing/cropping when tabs hide/show */
   #wrap{
-    flex:1; display:flex; flex-direction:column;
-    padding:10px; gap:10px; overflow:auto;
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    padding:10px;
+    gap:10px;
+
+    /* instead of letting the whole page scroll (which makes the camera shrink),
+       we keep camera fixed and let controls scroll */
+    overflow:hidden;
+    min-height:0; /* required for nested flex scrolling */
   }
 
+  /* CAMERA CARD: never shrink, so it stays same size no matter tabs */
   #videoCard{
-    background:#000; border-radius:10px; overflow:hidden;
+    background:#000;
+    border-radius:10px;
     border:1px solid #222;
+
+    /* keep rounding without cropping by preventing shrink instead of changing size */
+    overflow:hidden;
+
+    flex:0 0 auto;
+    flex-shrink:0;     /* KEY: stops cropping when controls expand */
   }
-  #output{ width:100%; display:block; background:#000; }
+
+  #output{
+    width:100%;
+    display:block;
+    background:#000;
+    height:auto;       /* keep aspect correct */
+  }
+
   video{ display:none; }
 
+  /* CONTROLS SCROLL INDEPENDENTLY */
   #controls{
     background:var(--card);
     border:1px solid #222;
     border-radius:10px;
     padding:10px;
+
     display:flex;
     flex-direction:column;
     gap:10px;
+
+    flex:1 1 auto;
+    min-height:0;      /* required for overflow scrolling inside flex */
+    overflow:auto;     /* controls scroll, not the camera */
   }
 
   .group{
@@ -175,7 +205,6 @@
           <span class="valueLabel" id="offsetValue">0 px</span>
         </div>
 
-        <!-- MOVED: Show Lane Boundaries beside Show Threshold Window -->
         <div class="checkboxRow">
           <label><input type="checkbox" id="showPreview"> Show Threshold Window</label>
           <label><input type="checkbox" id="chkShowLaneBounds"> Show Lane Boundaries</label>
@@ -676,7 +705,6 @@ function loop(){
 
   const blobs=[], borders=[], dashed=[];
   const roiW = invR.cols;
-  const roiH = invR.rows;
 
   function toPts(cnt){
     const d=cnt.data32S;
@@ -697,7 +725,7 @@ function loop(){
       const L=(x<=0);
       const R=(x+ww>=roiW-1);
       const T=(y<=0);
-      const B=(y+hh>=roiH-1);
+      const B=(y+hh>=invR.rows-1);
 
       const isBorder = (T&&B)||(L&&T)||(L&&B)||(R&&T)||(R&&B);
       const tb = (T&&B);
