@@ -21,56 +21,30 @@
   }
   #statusText{ opacity:.9; }
 
-  /* IMPORTANT: prevent camera frame from resizing/cropping when tabs hide/show */
+  /* keep width stable even when content height changes */
   #wrap{
-    flex:1;
-    display:flex;
-    flex-direction:column;
-    padding:10px;
-    gap:10px;
-
-    /* instead of letting the whole page scroll (which makes the camera shrink),
-       we keep camera fixed and let controls scroll */
-    overflow:hidden;
-    min-height:0; /* required for nested flex scrolling */
+    flex:1; display:flex; flex-direction:column;
+    padding:10px; gap:10px;
+    overflow-y: scroll;                 /* always reserve scroll area */
+    scrollbar-gutter: stable both-edges;
   }
 
-  /* CAMERA CARD: never shrink, so it stays same size no matter tabs */
   #videoCard{
-    background:#000;
-    border-radius:10px;
+    background:#000; border-radius:10px; overflow:hidden;
     border:1px solid #222;
-
-    /* keep rounding without cropping by preventing shrink instead of changing size */
-    overflow:hidden;
-
-    flex:0 0 auto;
-    flex-shrink:0;     /* KEY: stops cropping when controls expand */
-  }
-
-  #output{
     width:100%;
-    display:block;
-    background:#000;
-    height:auto;       /* keep aspect correct */
   }
-
+  #output{ width:100%; height:auto; display:block; background:#000; }
   video{ display:none; }
 
-  /* CONTROLS SCROLL INDEPENDENTLY */
   #controls{
     background:var(--card);
     border:1px solid #222;
     border-radius:10px;
     padding:10px;
-
     display:flex;
     flex-direction:column;
     gap:10px;
-
-    flex:1 1 auto;
-    min-height:0;      /* required for overflow scrolling inside flex */
-    overflow:auto;     /* controls scroll, not the camera */
   }
 
   .group{
@@ -230,6 +204,13 @@
           <span class="valueLabel" id="roiWidthValue">85%</span>
         </div>
 
+        <!-- NEW: ROI Horizontal Pos (%) -->
+        <div class="formRow">
+          <label>ROI Horizontal Pos (%)</label>
+          <input type="range" id="roiHPosSlider" min="0" max="100" value="50">
+          <span class="valueLabel" id="roiHPosValue">50%</span>
+        </div>
+
         <div class="formRow">
           <label>ROI Vertical Pos (%)</label>
           <input type="range" id="roiCenterSlider" min="10" max="90" value="75">
@@ -257,6 +238,7 @@ function loadSetting(k,def){ try{ const v=localStorage.getItem(k); return v!==nu
    State
 ========================= */
 const video = document.getElementById("video");
+const videoCard = document.getElementById("videoCard");
 const canvas = document.getElementById("output");
 const ctx2 = canvas.getContext("2d");
 
@@ -283,9 +265,12 @@ let torchOn=false;
 let detectLeft = loadSetting("detectLeft", false);
 let thresholdValue = loadSetting("thresholdValue", 160);
 let minBlobSize = loadSetting("minBlobSize", 180);
+
 let roiPercent = loadSetting("roiPercent", 20);
 let roiWidthPercent = loadSetting("roiWidthPercent", 85);
+let roiHPosPercent = loadSetting("roiHPosPercent", 50);     // NEW
 let roiCenterPercent = loadSetting("roiCenterPercent", 75);
+
 let lineThickness = loadSetting("lineThickness", 2);
 
 let dotSize = loadSetting("dotSize", 10);
@@ -308,7 +293,18 @@ let lastRedX=null, lastRedY=null;
 let lastLaneLeft=null, lastLaneRight=null;
 
 /* =========================
-   UI init bindings
+   Lock camera display aspect ratio
+========================= */
+function lockVideoCardAspect(){
+  if(video.videoWidth && video.videoHeight){
+    videoCard.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+  }
+}
+video.addEventListener("loadedmetadata", lockVideoCardAspect);
+video.addEventListener("resize", lockVideoCardAspect);
+
+/* =========================
+   UI bindings
 ========================= */
 document.getElementById("toggleMode").onclick = ()=>{
   detectLeft=!detectLeft;
@@ -407,6 +403,7 @@ function applyDetectionVisibility(){
   groupDetection.style.display = showDetectionTab ? "block" : "none";
   btnToggleDetection.textContent = showDetectionTab ? "Hide" : "Show";
   chkShowDetection.checked = showDetectionTab;
+  requestAnimationFrame(lockVideoCardAspect);
 }
 chkShowDetection.checked = showDetectionTab;
 chkShowDetection.onchange = e=>{
@@ -427,6 +424,7 @@ function applyROIVisibility(){
   groupROI.style.display = showROITab ? "block" : "none";
   btnToggleROI.textContent = showROITab ? "Hide" : "Show";
   chkShowROI.checked = showROITab;
+  requestAnimationFrame(lockVideoCardAspect);
 }
 chkShowROI.checked = showROITab;
 chkShowROI.onchange = e=>{
@@ -459,6 +457,17 @@ roiWidthSlider.oninput = e=>{
   roiWidthPercent = Number(e.target.value);
   roiWidthValue.textContent = roiWidthPercent + "%";
   saveSetting("roiWidthPercent", roiWidthPercent);
+};
+
+/* NEW: ROI Horizontal Pos (%) */
+const roiHPosSlider = document.getElementById("roiHPosSlider");
+const roiHPosValue  = document.getElementById("roiHPosValue");
+roiHPosSlider.value = roiHPosPercent;
+roiHPosValue.textContent = roiHPosPercent + "%";
+roiHPosSlider.oninput = e=>{
+  roiHPosPercent = Number(e.target.value);
+  roiHPosValue.textContent = roiHPosPercent + "%";
+  saveSetting("roiHPosPercent", roiHPosPercent);
 };
 
 const roiCenterSlider = document.getElementById("roiCenterSlider");
@@ -513,6 +522,7 @@ async function startCamera(deviceId){
     torchOn=false;
     btnTorch.textContent = "Torch OFF";
     statusText.textContent = "Camera running ✅";
+    requestAnimationFrame(lockVideoCardAspect);
 
   }catch(err){
     console.error("startCamera error", err);
@@ -566,16 +576,16 @@ async function listCams(){
   }
 }
 
-btnRefreshCam.onclick = async ()=>{ await listCams(); };
+document.getElementById("btnRefreshCam").onclick = async ()=>{ await listCams(); };
 
-btnTorch.onclick = ()=>{
+document.getElementById("btnTorch").onclick = ()=>{
   if(!currentTrack){ alert("No active camera"); return; }
   const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
   if(!("torch" in caps)){ alert("Torch not supported"); return; }
 
   torchOn = !torchOn;
   currentTrack.applyConstraints({ advanced:[{ torch: torchOn }] });
-  btnTorch.textContent = torchOn ? "Torch ON" : "Torch OFF";
+  document.getElementById("btnTorch").textContent = torchOn ? "Torch ON" : "Torch OFF";
 };
 
 /* =========================
@@ -670,7 +680,10 @@ function loop(){
     fullGray.delete(); fullMask.delete(); small.delete(); smallRGBA.delete();
   }
 
-  // ROI geometry (width controlled)
+  /* =========================
+     ROI geometry (width + horizontal pos)
+     roiHPosPercent: 0% = left, 50% = center, 100% = right
+  ========================= */
   let roi_h = Math.floor(h*(roiPercent/100));
   roi_h = Math.max(1, Math.min(h, roi_h));
 
@@ -684,8 +697,8 @@ function loop(){
   let roi_w = Math.floor(w*(roiWidthPercent/100));
   roi_w = Math.max(20, Math.min(w, roi_w));
 
-  const inset = 10;
-  let roi_x1 = detectLeft ? inset : (w - roi_w - inset);
+  // Horizontal position based on percent
+  let roi_x1 = Math.round((w - roi_w) * (roiHPosPercent/100));
   roi_x1 = Math.max(0, Math.min(w - roi_w, roi_x1));
   let roi_x2 = roi_x1 + roi_w;
 
@@ -795,6 +808,7 @@ function loop(){
   const useRight = (laneLeft!=null && laneRight!=null) ? laneRight : lastLaneRight;
 
   const lineY = Math.round((roi_y1+roi_y2)/2);
+
   ctx2.strokeStyle="yellow";
   ctx2.lineWidth=2;
   ctx2.beginPath();
@@ -812,19 +826,13 @@ function loop(){
     ctx2.beginPath(); ctx2.moveTo(xR, roi_y1); ctx2.lineTo(xR, roi_y2); ctx2.stroke();
   }
 
+  // red dot
   let redX, redY=lineY;
+  let anchorLocal = detectLeft ? ((useLeft!=null)?useLeft:main_cx) : ((useRight!=null)?useRight:main_cx);
 
-  let anchorLocal = null;
-  if(detectLeft){
-    anchorLocal = (useLeft!=null) ? useLeft : main_cx;
-  }else{
-    anchorLocal = (useRight!=null) ? useRight : main_cx;
-  }
-
-  let local = null;
-
+  let local=null;
   if(!useOffsetModeState){
-    if(useLeft!=null && useRight!=null) local = (useLeft + useRight) / 2;
+    if(useLeft!=null && useRight!=null) local = (useLeft + useRight)/2;
     else if(anchorLocal!=null) local = anchorLocal;
     else local = roiW/2;
   }else{
