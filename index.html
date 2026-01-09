@@ -204,11 +204,10 @@
           <span class="valueLabel" id="roiWidthValue">85%</span>
         </div>
 
-        <!-- NEW: ROI Horizontal Pos (%) -->
         <div class="formRow">
           <label>ROI Horizontal Pos (%)</label>
-          <input type="range" id="roiHPosSlider" min="0" max="100" value="50">
-          <span class="valueLabel" id="roiHPosValue">50%</span>
+          <input type="range" id="roiHPosSlider" min="0" max="100" value="10">
+          <span class="valueLabel" id="roiHPosValue">10%</span>
         </div>
 
         <div class="formRow">
@@ -268,7 +267,7 @@ let minBlobSize = loadSetting("minBlobSize", 180);
 
 let roiPercent = loadSetting("roiPercent", 20);
 let roiWidthPercent = loadSetting("roiWidthPercent", 85);
-let roiHPosPercent = loadSetting("roiHPosPercent", 50);     // NEW
+let roiHPosPercent = loadSetting("roiHPosPercent", detectLeft ? 10 : 90);
 let roiCenterPercent = loadSetting("roiCenterPercent", 75);
 
 let lineThickness = loadSetting("lineThickness", 2);
@@ -304,11 +303,25 @@ video.addEventListener("loadedmetadata", lockVideoCardAspect);
 video.addEventListener("resize", lockVideoCardAspect);
 
 /* =========================
+   Helpers: ROI anchor by mode
+========================= */
+function anchorRoiHPosToMode(){
+  // left mode => ROI anchored left; right mode => ROI anchored right
+  roiHPosPercent = detectLeft ? 10 : 90;
+  roiHPosSlider.value = roiHPosPercent;
+  roiHPosValue.textContent = roiHPosPercent + "%";
+  saveSetting("roiHPosPercent", roiHPosPercent);
+}
+
+/* =========================
    UI bindings
 ========================= */
 document.getElementById("toggleMode").onclick = ()=>{
   detectLeft=!detectLeft;
   saveSetting("detectLeft", detectLeft);
+
+  // IMPORTANT: mode toggle anchors ROI horizontal position left/right
+  anchorRoiHPosToMode();
 };
 
 const thSlider = document.getElementById("thSlider");
@@ -459,11 +472,18 @@ roiWidthSlider.oninput = e=>{
   saveSetting("roiWidthPercent", roiWidthPercent);
 };
 
-/* NEW: ROI Horizontal Pos (%) */
+/* ROI Horizontal Pos (%) */
 const roiHPosSlider = document.getElementById("roiHPosSlider");
 const roiHPosValue  = document.getElementById("roiHPosValue");
-roiHPosSlider.value = roiHPosPercent;
-roiHPosValue.textContent = roiHPosPercent + "%";
+
+/* if old saved value exists, use it; otherwise align to mode */
+if(localStorage.getItem("roiHPosPercent") === null){
+  anchorRoiHPosToMode();
+} else {
+  roiHPosSlider.value = roiHPosPercent;
+  roiHPosValue.textContent = roiHPosPercent + "%";
+}
+
 roiHPosSlider.oninput = e=>{
   roiHPosPercent = Number(e.target.value);
   roiHPosValue.textContent = roiHPosPercent + "%";
@@ -576,16 +596,16 @@ async function listCams(){
   }
 }
 
-document.getElementById("btnRefreshCam").onclick = async ()=>{ await listCams(); };
+btnRefreshCam.onclick = async ()=>{ await listCams(); };
 
-document.getElementById("btnTorch").onclick = ()=>{
+btnTorch.onclick = ()=>{
   if(!currentTrack){ alert("No active camera"); return; }
   const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
   if(!("torch" in caps)){ alert("Torch not supported"); return; }
 
   torchOn = !torchOn;
   currentTrack.applyConstraints({ advanced:[{ torch: torchOn }] });
-  document.getElementById("btnTorch").textContent = torchOn ? "Torch ON" : "Torch OFF";
+  btnTorch.textContent = torchOn ? "Torch ON" : "Torch OFF";
 };
 
 /* =========================
@@ -682,7 +702,6 @@ function loop(){
 
   /* =========================
      ROI geometry (width + horizontal pos)
-     roiHPosPercent: 0% = left, 50% = center, 100% = right
   ========================= */
   let roi_h = Math.floor(h*(roiPercent/100));
   roi_h = Math.max(1, Math.min(h, roi_h));
@@ -697,7 +716,7 @@ function loop(){
   let roi_w = Math.floor(w*(roiWidthPercent/100));
   roi_w = Math.max(20, Math.min(w, roi_w));
 
-  // Horizontal position based on percent
+  // Horizontal position based on percent (0..100)
   let roi_x1 = Math.round((w - roi_w) * (roiHPosPercent/100));
   roi_x1 = Math.max(0, Math.min(w - roi_w, roi_x1));
   let roi_x2 = roi_x1 + roi_w;
