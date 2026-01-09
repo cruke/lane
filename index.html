@@ -21,7 +21,6 @@
   }
   #statusText{ opacity:.9; }
 
-  /* SINGLE COLUMN LAYOUT */
   #wrap{
     flex:1; display:flex; flex-direction:column;
     padding:10px; gap:10px; overflow:auto;
@@ -52,6 +51,7 @@
   }
   .groupTitle{
     font-weight:700; font-size:13px; margin-bottom:8px; color:#ddd;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
   }
 
   .formRow{
@@ -106,7 +106,7 @@
     <div id="controls">
 
       <!-- Camera Group -->
-      <div class="group">
+      <div class="group" id="groupCamera">
         <div class="groupTitle">Camera</div>
 
         <div class="formRow" style="margin-bottom:10px;">
@@ -126,11 +126,20 @@
           <label><input type="checkbox" id="chkMirror"> Mirror</label>
           <label><input type="checkbox" id="chkPaused"> Pause</label>
         </div>
+
+        <!-- Tab toggles -->
+        <div class="checkboxRow" style="margin-top:10px;">
+          <label><input type="checkbox" id="chkShowDetection"> Show Detection Tab</label>
+          <label><input type="checkbox" id="chkShowROI"> Show ROI Tab</label>
+        </div>
       </div>
 
       <!-- Detection Group -->
-      <div class="group">
-        <div class="groupTitle">Detection</div>
+      <div class="group" id="groupDetection">
+        <div class="groupTitle">
+          <span>Detection</span>
+          <button id="btnToggleDetection" style="height:28px;padding:0 10px;border-radius:9px;font-size:12px;">Hide</button>
+        </div>
 
         <div class="formRow">
           <label>Threshold (Invert)</label>
@@ -166,19 +175,30 @@
           <span class="valueLabel" id="offsetValue">0 px</span>
         </div>
 
+        <!-- MOVED: Show Lane Boundaries beside Show Threshold Window -->
         <div class="checkboxRow">
           <label><input type="checkbox" id="showPreview"> Show Threshold Window</label>
+          <label><input type="checkbox" id="chkShowLaneBounds"> Show Lane Boundaries</label>
         </div>
       </div>
 
       <!-- ROI Group -->
-      <div class="group">
-        <div class="groupTitle">ROI</div>
+      <div class="group" id="groupROI">
+        <div class="groupTitle">
+          <span>ROI</span>
+          <button id="btnToggleROI" style="height:28px;padding:0 10px;border-radius:9px;font-size:12px;">Hide</button>
+        </div>
 
         <div class="formRow">
           <label>ROI Height (%)</label>
           <input type="range" id="roiSlider" min="5" max="50" value="20">
           <span class="valueLabel" id="roiValue">20%</span>
+        </div>
+
+        <div class="formRow">
+          <label>ROI Width (%)</label>
+          <input type="range" id="roiWidthSlider" min="20" max="100" value="85">
+          <span class="valueLabel" id="roiWidthValue">85%</span>
         </div>
 
         <div class="formRow">
@@ -221,6 +241,12 @@ const btnTorch = document.getElementById("btnTorch");
 const chkMirror = document.getElementById("chkMirror");
 const chkPaused = document.getElementById("chkPaused");
 
+const groupDetection = document.getElementById("groupDetection");
+const btnToggleDetection = document.getElementById("btnToggleDetection");
+
+const groupROI = document.getElementById("groupROI");
+const btnToggleROI = document.getElementById("btnToggleROI");
+
 let currentStream=null;
 let currentTrack=null;
 let torchOn=false;
@@ -229,6 +255,7 @@ let detectLeft = loadSetting("detectLeft", false);
 let thresholdValue = loadSetting("thresholdValue", 160);
 let minBlobSize = loadSetting("minBlobSize", 180);
 let roiPercent = loadSetting("roiPercent", 20);
+let roiWidthPercent = loadSetting("roiWidthPercent", 85);
 let roiCenterPercent = loadSetting("roiCenterPercent", 75);
 let lineThickness = loadSetting("lineThickness", 2);
 
@@ -237,6 +264,10 @@ let redOffset = loadSetting("redOffset", 0);
 let useOffsetModeState = loadSetting("useOffsetMode", true);
 
 let showPreviewState = loadSetting("showPreview", false);
+
+let showLaneBounds = loadSetting("showLaneBounds", true);
+let showDetectionTab = loadSetting("showDetectionTab", true);
+let showROITab = loadSetting("showROITab", true);
 
 let paused = loadSetting("paused", false);
 chkPaused.checked = paused;
@@ -271,24 +302,6 @@ blobSlider.oninput = e=>{
   minBlobSize = Number(e.target.value);
   blobValue.textContent = minBlobSize;
   saveSetting("minBlobSize", minBlobSize);
-};
-
-const roiSlider = document.getElementById("roiSlider");
-const roiValue = document.getElementById("roiValue");
-roiSlider.value = roiPercent; roiValue.textContent = roiPercent + "%";
-roiSlider.oninput = e=>{
-  roiPercent = Number(e.target.value);
-  roiValue.textContent = roiPercent + "%";
-  saveSetting("roiPercent", roiPercent);
-};
-
-const roiCenterSlider = document.getElementById("roiCenterSlider");
-const roiCenterValue = document.getElementById("roiCenterValue");
-roiCenterSlider.value = roiCenterPercent; roiCenterValue.textContent = roiCenterPercent + "%";
-roiCenterSlider.oninput = e=>{
-  roiCenterPercent = Number(e.target.value);
-  roiCenterValue.textContent = roiCenterPercent + "%";
-  saveSetting("roiCenterPercent", roiCenterPercent);
 };
 
 const thickSlider = document.getElementById("thickSlider");
@@ -344,12 +357,88 @@ showPreview.onchange = e=>{
   saveSetting("showPreview", showPreviewState);
 };
 
+const chkShowLaneBounds = document.getElementById("chkShowLaneBounds");
+chkShowLaneBounds.checked = showLaneBounds;
+chkShowLaneBounds.onchange = e=>{
+  showLaneBounds = e.target.checked;
+  saveSetting("showLaneBounds", showLaneBounds);
+};
+
 chkMirror.checked = loadSetting("mirror", false);
 chkMirror.onchange = e=> saveSetting("mirror", e.target.checked);
 
 chkPaused.onchange = e=>{
   paused = e.target.checked;
   saveSetting("paused", paused);
+};
+
+/* Detection tab toggle */
+const chkShowDetection = document.getElementById("chkShowDetection");
+function applyDetectionVisibility(){
+  groupDetection.style.display = showDetectionTab ? "block" : "none";
+  btnToggleDetection.textContent = showDetectionTab ? "Hide" : "Show";
+  chkShowDetection.checked = showDetectionTab;
+}
+chkShowDetection.checked = showDetectionTab;
+chkShowDetection.onchange = e=>{
+  showDetectionTab = e.target.checked;
+  saveSetting("showDetectionTab", showDetectionTab);
+  applyDetectionVisibility();
+};
+btnToggleDetection.onclick = ()=>{
+  showDetectionTab = !showDetectionTab;
+  saveSetting("showDetectionTab", showDetectionTab);
+  applyDetectionVisibility();
+};
+applyDetectionVisibility();
+
+/* ROI tab toggle */
+const chkShowROI = document.getElementById("chkShowROI");
+function applyROIVisibility(){
+  groupROI.style.display = showROITab ? "block" : "none";
+  btnToggleROI.textContent = showROITab ? "Hide" : "Show";
+  chkShowROI.checked = showROITab;
+}
+chkShowROI.checked = showROITab;
+chkShowROI.onchange = e=>{
+  showROITab = e.target.checked;
+  saveSetting("showROITab", showROITab);
+  applyROIVisibility();
+};
+btnToggleROI.onclick = ()=>{
+  showROITab = !showROITab;
+  saveSetting("showROITab", showROITab);
+  applyROIVisibility();
+};
+applyROIVisibility();
+
+/* ROI sliders */
+const roiSlider = document.getElementById("roiSlider");
+const roiValue = document.getElementById("roiValue");
+roiSlider.value = roiPercent; roiValue.textContent = roiPercent + "%";
+roiSlider.oninput = e=>{
+  roiPercent = Number(e.target.value);
+  roiValue.textContent = roiPercent + "%";
+  saveSetting("roiPercent", roiPercent);
+};
+
+const roiWidthSlider = document.getElementById("roiWidthSlider");
+const roiWidthValue  = document.getElementById("roiWidthValue");
+roiWidthSlider.value = roiWidthPercent;
+roiWidthValue.textContent = roiWidthPercent + "%";
+roiWidthSlider.oninput = e=>{
+  roiWidthPercent = Number(e.target.value);
+  roiWidthValue.textContent = roiWidthPercent + "%";
+  saveSetting("roiWidthPercent", roiWidthPercent);
+};
+
+const roiCenterSlider = document.getElementById("roiCenterSlider");
+const roiCenterValue = document.getElementById("roiCenterValue");
+roiCenterSlider.value = roiCenterPercent; roiCenterValue.textContent = roiCenterPercent + "%";
+roiCenterSlider.oninput = e=>{
+  roiCenterPercent = Number(e.target.value);
+  roiCenterValue.textContent = roiCenterPercent + "%";
+  saveSetting("roiCenterPercent", roiCenterPercent);
 };
 
 /* =========================
@@ -367,7 +456,7 @@ window.addEventListener("mousemove", e=>{
 });
 
 /* =========================
-   Camera functions (phone-friendly)
+   Camera functions
 ========================= */
 async function startCamera(deviceId){
   try{
@@ -407,7 +496,6 @@ async function listCams(){
   try{
     statusText.textContent = "Listing cameras…";
 
-    // permission warm-up so labels show on phone
     try{
       const temp = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
       temp.getTracks().forEach(t=>t.stop());
@@ -449,9 +537,7 @@ async function listCams(){
   }
 }
 
-btnRefreshCam.onclick = async ()=>{
-  await listCams();
-};
+btnRefreshCam.onclick = async ()=>{ await listCams(); };
 
 btnTorch.onclick = ()=>{
   if(!currentTrack){ alert("No active camera"); return; }
@@ -485,7 +571,6 @@ function updateFPS(){
 /* =========================
    Draw polyline
 ========================= */
-/* Darker colors requested */
 const PURPLE = "#6A00A8";
 const BLUE   = "#0070B8";
 const DGREEN = "#007A00";
@@ -527,11 +612,9 @@ function loop(){
   ctx2.drawImage(video,0,0);
   ctx2.restore();
 
-  // OpenCV read
   let frame = cv.imread(canvas);
   const h = frame.rows, w = frame.cols;
 
-  // preview threshold (entire frame, correct aspect)
   if(showPreviewState){
     const fullGray = new cv.Mat();
     cv.cvtColor(frame, fullGray, cv.COLOR_RGBA2GRAY);
@@ -558,7 +641,7 @@ function loop(){
     fullGray.delete(); fullMask.delete(); small.delete(); smallRGBA.delete();
   }
 
-  // ROI geometry
+  // ROI geometry (width controlled)
   let roi_h = Math.floor(h*(roiPercent/100));
   roi_h = Math.max(1, Math.min(h, roi_h));
 
@@ -569,12 +652,13 @@ function loop(){
   if(roi_y1<0){ roi_y1=0; roi_y2=roi_h; }
   if(roi_y2>h){ roi_y2=h; roi_y1=h-roi_h; }
 
-  let roi_x1 = detectLeft ? 10 : 100;
-  let roi_x2 = detectLeft ? (w-100) : (w-10);
-  roi_x1 = Math.max(0, Math.min(w-1, roi_x1));
-  roi_x2 = Math.max(roi_x1+1, Math.min(w, roi_x2));
+  let roi_w = Math.floor(w*(roiWidthPercent/100));
+  roi_w = Math.max(20, Math.min(w, roi_w));
 
-  const roi_w = roi_x2 - roi_x1;
+  const inset = 10;
+  let roi_x1 = detectLeft ? inset : (w - roi_w - inset);
+  roi_x1 = Math.max(0, Math.min(w - roi_w, roi_x1));
+  let roi_x2 = roi_x1 + roi_w;
 
   const roiRect = new cv.Rect(roi_x1, roi_y1, roi_w, roi_h);
   const roi = frame.roi(roiRect);
@@ -626,10 +710,8 @@ function loop(){
     cnt.delete();
   }
 
-  // mean of dashed centers
   const mean_d = dashed.length ? dashed.reduce((s,b)=>s+b.cx,0)/dashed.length : roiW/2;
 
-  // choose main line blob (border line)
   let main=null;
   if(borders.length){
     if(detectLeft){
@@ -660,7 +742,6 @@ function loop(){
     greens.push(b.cx);
   }
 
-  // lane boundaries for vertical yellow lines
   let laneLeft=null, laneRight=null;
   if(main_cx!=null && greens.length){
     if(detectLeft){
@@ -685,7 +766,6 @@ function loop(){
   const useLeft  = (laneLeft!=null && laneRight!=null) ? laneLeft  : lastLaneLeft;
   const useRight = (laneLeft!=null && laneRight!=null) ? laneRight : lastLaneRight;
 
-  // horizontal yellow line always
   const lineY = Math.round((roi_y1+roi_y2)/2);
   ctx2.strokeStyle="yellow";
   ctx2.lineWidth=2;
@@ -694,8 +774,7 @@ function loop(){
   ctx2.lineTo(roi_x2, lineY);
   ctx2.stroke();
 
-  // vertical lines (if boundaries exist)
-  if(useLeft!=null && useRight!=null){
+  if(showLaneBounds && useLeft!=null && useRight!=null){
     const xL = Math.round(roi_x1 + useLeft);
     const xR = Math.round(roi_x1 + useRight);
 
@@ -705,15 +784,9 @@ function loop(){
     ctx2.beginPath(); ctx2.moveTo(xR, roi_y1); ctx2.lineTo(xR, roi_y2); ctx2.stroke();
   }
 
-  /* =========================================================
-     RED DOT (MODE-AWARE OFFSET DIRECTION)
-     - LEFT mode:  anchor (purple line) + offset -> right
-     - RIGHT mode: anchor (blue line)   - offset -> left
-     - Center mode: middle between left+right lines (no offset)
-  ========================================================= */
   let redX, redY=lineY;
 
-  let anchorLocal = null; // x inside ROI
+  let anchorLocal = null;
   if(detectLeft){
     anchorLocal = (useLeft!=null) ? useLeft : main_cx;
   }else{
@@ -723,22 +796,14 @@ function loop(){
   let local = null;
 
   if(!useOffsetModeState){
-    if(useLeft!=null && useRight!=null){
-      local = (useLeft + useRight) / 2;
-    }else if(anchorLocal!=null){
-      local = anchorLocal;
-    }else{
-      local = roiW/2;
-    }
+    if(useLeft!=null && useRight!=null) local = (useLeft + useRight) / 2;
+    else if(anchorLocal!=null) local = anchorLocal;
+    else local = roiW/2;
   }else{
     const signedOffset = detectLeft ? (+redOffset) : (-redOffset);
-    if(anchorLocal!=null){
-      local = anchorLocal + signedOffset;
-    }else if(lastRedX!=null){
-      local = null;
-    }else{
-      local = (roiW/2) + signedOffset;
-    }
+    if(anchorLocal!=null) local = anchorLocal + signedOffset;
+    else if(lastRedX!=null) local = null;
+    else local = (roiW/2) + signedOffset;
   }
 
   if(local!=null){
@@ -762,7 +827,7 @@ function loop(){
   ctx2.lineWidth=3;
   ctx2.strokeRect(roi_x1, roi_y1, roi_w, roi_h);
 
-  // HUD text
+  // HUD
   ctx2.fillStyle="yellow";
   ctx2.font="50px Arial";
   ctx2.fillText(detectLeft?"MODE LEFT (purple)":"MODE RIGHT (blue)", 10, 60);
@@ -772,7 +837,6 @@ function loop(){
   ctx2.font="50px Arial";
   ctx2.fillText("Red dot: ("+redX+", "+redY+")", 10, h-20);
 
-  // cleanup
   roi.delete(); grayR.delete(); invR.delete();
   contours.delete(); hier.delete(); frame.delete();
 }
